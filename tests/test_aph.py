@@ -637,6 +637,9 @@ class TestProfitAnalyst(Base):
         self.listing(pid, 400000); self.listing(pid, 500000)
         s = aph.price_stats(self.st, pid)
         self.assertEqual((s["p25"], s["median"], s["p75"]), (275000, 350000, 425000))
+        for p in (900000, 950000, 1000000):
+            self.listing(pid, p, variant_key="hang-x")
+        self.assertEqual(aph.price_stats(self.st, pid, variant="hang-x")["median"], 950000)
 
     def test_build_inputs_lists_missing_without_inventing(self):
         pid = self.product()["product_id"]
@@ -682,6 +685,19 @@ class TestProfitAnalyst(Base):
                 self.assertAlmostEqual(chk["scenarios"][sc]["net_margin_pct"], m, delta=0.1)
 
     def test_max_cost_incomplete_and_not_viable(self):
-        self.assertEqual(aph.max_unit_cost({"sell_price": 100000})["status"], "incomplete")
+        self.assertEqual(aph.max_unit_cost({"sell_price": 100000})["status"], "incomplete")  # thiếu phí sàn
+        fee = {"base": 27, "conservative": 27, "optimistic": 27, "ref": "user:t"}
+        zero = {"base": 0, "conservative": 0, "optimistic": 0, "ref": "user:t"}
+        part = aph.max_unit_cost({"sell_price": {"conservative": 200000, "base": 200000, "optimistic": 200000, "ref": "user:t"},
+                                  "platform_fee_pct": fee, "payment_fee_pct": zero}, (10, 20))
+        self.assertEqual(part["status"], "partial")
+        self.assertIn("ads_pct", part["excluded_costs"])
+        # trần: 200000 * (1 - 27% - 10%) = 126000; * (1 - 27% - 20%) = 106000
+        self.assertEqual(part["scenarios"]["base"]["max_unit_cost_at_10pct"], 126000)
+        self.assertEqual(part["scenarios"]["base"]["max_unit_cost_at_20pct"], 106000)
+        d = aph.discount_needed(part, 200000, "sup_x")
+        self.assertEqual(d["base"]["min_discount_pct_at_10pct"], 37.0)  # 1 - 126000/200000
+        self.assertEqual(aph.max_unit_cost({"sell_price": 1, "platform_fee_pct": fee, "payment_fee_pct": zero}, strict=True)["status"],
+                         "incomplete")
         inp = full_inputs(ads_pct={"conservative": 70, "base": 70, "optimistic": 70, "ref": "user:t"})
         self.assertIsNone(aph.max_unit_cost(inp, (10,))["scenarios"]["base"]["max_unit_cost_at_10pct"])

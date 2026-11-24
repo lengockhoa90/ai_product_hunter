@@ -1,56 +1,53 @@
 ---
 name: dtm-profit-analyst
-description: Agent 06 Profit Analyst của AI Product Hunter (DTM): tính giá bán thị trường, giá nhập tối đa để còn lãi, và lãi ròng 3 kịch bản trên Shopee/TikTok Shop cho sản phẩm trong kho. Dùng khi nói "chạy Profit Analyst", "tính lãi", "giá nhập tối đa bao nhiêu".
+description: Agent 06 Profit Analyst của AI Product Hunter (DTM): thu thập giá bán thị trường của từng model và tính giá nhập tối đa chấp nhận được, để người dùng đàm phán giá với nhà cung cấp. Dùng khi nói "chạy Profit Analyst", "giá thị trường", "giá nhập tối đa bao nhiêu".
 ---
 
-# Agent 06 — Profit Analyst
+# Agent 06 — Profit Analyst (giá thị trường → giá nhập tối đa)
 
-Trả lời 3 câu hỏi cho mỗi sản phẩm và mỗi sàn:
-1. Thị trường đang bán giá bao nhiêu?
-2. Giá nhập tối đa là bao nhiêu để còn lãi ròng 10% và 20%?
-3. Với giá nhập thật thì lãi ròng mỗi sản phẩm, điểm hòa vốn và vốn lô thử là bao nhiêu?
+Phạm vi do người dùng chốt (2026-11-24): **chỉ** làm 2 việc:
+1. Thu thập giá bán thị trường của sản phẩm.
+2. Ước tính **giá nhập tối đa có thể chấp nhận** để người dùng mang đi đàm phán với nhà cung cấp.
 
-Câu 2 không cần giá nhập: người dùng tự so với bảng giá đại lý của mình. Mọi phép tính chỉ chạy bằng `tools/aph.py`. Không tự cộng trừ, không tự điền số.
+Không cần giá nhập thật. Không mô phỏng lãi đầy đủ, trừ khi người dùng yêu cầu. Mọi phép tính chạy bằng `tools/aph.py`; không tự tính tay, không tự điền số.
 
 ## Môi trường chạy
 - Cần repo `lengockhoa90/ai_product_hunter` (có `tools/aph.py`) và kho `/mnt/project-files/ai-product-hunter/data`. Thiếu → dừng, báo người dùng chạy trong dự án AI Product Hunter.
-- Thu giá bán cần trình duyệt Claude trên PC (`mcp__remote-devices__Claude_Browser__*`). Không có → chỉ tính trên dữ liệu đã có trong kho.
-- Đọc trước: `rules/research_rules.md` (mục Lợi nhuận), `rules/scoring_rules.md` (tiêu chí profit), `config/business_profile.json` (vốn thử 10 triệu, shop Shopee thường).
+- Trình duyệt Claude trên PC (`mcp__remote-devices__Claude_Browser__*`) để thu giá. Không có → chỉ tính trên giá đã có trong kho.
+- Đọc trước: `rules/research_rules.md`, `config/business_profile.json` (shop Shopee thường, kênh Shopee + TikTok Shop).
 
-## 1. Đầu vào và nguồn của từng đầu vào
-| Đầu vào | Lấy từ | Ghi vào kho bằng |
-|---|---|---|
-| Giá bán `sell_price` | ≥ 3 tin đăng đối thủ **cùng biến thể** (giao thức, số nút, loại khóa). Thận trọng = phân vị 25, cơ sở = trung vị, lạc quan = phân vị 75 | `add --kind listing` có `price_vnd`, đoạn trích chứa giá |
-| Phí sàn | Tổng phí người dùng chốt: `shopee_total_fee_pct_user`, `tiktok_shop_total_fee_pct_user` (27%). `payment_fee_pct` = 0 để không tính trùng | assumption có sẵn |
-| Chi phí shop: quảng cáo %, ship shop chịu, đóng gói, vận hành, tỷ lệ hoàn, % thiệt hại khi hoàn, ship nhập, chi phí khác, chi phí cố định lô thử | **Chỉ người dùng cung cấp** | assumption `cost_<trường>` (dùng chung) hoặc `cost_<trường>_<sàn>`, `verification=user_input`, `source_url=user:<mã tin nhắn>`, giá trị là số hoặc `{"conservative":…, "base":…, "optimistic":…}` |
-| Giá nhập `unit_cost`, MOQ `moq` | Supplier `price_basis=dealer_quote` (người dùng báo) hoặc `wholesale_listed` (giá sỉ niêm yết) trong nước; chọn giá thấp nhất ở bậc số lượng nhỏ nhất | `add --kind supplier` |
-
-- **Không dùng** giá bán lẻ của hãng (`retail_listed`) hay giá 1688 làm giá nhập.
-- Chi phí shop thiếu thì **hỏi người dùng một lần**: liệt kê đủ 9 mục, cho phép trả lời "chưa biết". Không tự đặt mặc định.
-- Assumption chi phí shop nằm trong `data/assumptions/assumptions.json`. Thêm hoặc sửa bằng một đoạn Python đọc và ghi lại file JSON, giữ nguyên các mục khác. Ghi `source_date` và `collected_at`.
+## 1. Chọn model (biến thể)
+- Giá chỉ so được khi **cùng model**. Mỗi sản phẩm trong kho, lấy các model người dùng có thể nhập: các supplier của sản phẩm (`aph.py show --product <id>`), ưu tiên hãng người dùng đang lấy (Hunonic, Rạng Đông), và một bản Tuya/Zigbee không thương hiệu nếu sản phẩm là loại đó.
+- Đặt `variant_key` ngắn, không dấu, ví dụ `hunonic-datic-2nut`, `rangdong-cb16-ble`, `tuya-zigbee-generic`.
 
 ## 2. Thu giá bán thị trường
-1. Lazada: mở trang tag `https://www.lazada.vn/tag/<từ-khóa-không-dấu>/`, đọc thẻ sản phẩm, hoặc JSON `catalog/?ajax=true&q=…` (tối đa 2 từ khóa mỗi lần).
-   - 2026-11-24: sau vài lượt gọi, Lazada hiện reCAPTCHA "We need to check if you are a robot". Gặp hộp này → `log-access --status captcha`, dừng, nhờ người dùng tự bấm.
-2. Shopee: chỉ khi người dùng có mặt để tự giải CAPTCHA. TikTok Shop: nếu đọc được trang sản phẩm.
-3. Mỗi tin đăng ghi một `listing`: `title`, `price_vnd` (giá đang bán, không phải giá gạch), `sold_label`, `url`, đoạn trích nguyên văn chứa giá. Ghi trong `note` nếu biến thể lệch (WiFi và Zigbee, combo nhiều cái).
-4. `aph.py prices --product <id>` → cần `status=ok` (≥ 3 tin đăng).
+Nguồn theo thứ tự (dùng nguồn mở được, ghi `log-access` cho nguồn bị chặn):
+1. **Shopee** (kênh chính): người dùng đăng nhập sẵn; gặp CAPTCHA thì dừng, nhờ người dùng tự giải.
+2. **Lazada**: trang tag `https://www.lazada.vn/tag/<từ-khóa-không-dấu>/` hoặc JSON `catalog/?ajax=true&q=…` (tối đa 2 từ khóa mỗi lần). 2026-11-24: sau vài lượt, Lazada hiện reCAPTCHA và trang tag trả "Tìm kiếm không có kết quả" → `log-access --status captcha`, dừng.
+3. **Tiki**: `https://tiki.vn/api/v2/products?limit=40&q=<từ khóa>` gọi trong tab tiki.vn (đọc được 2026-11-24). Tiki ít shop bán model phổ thông, giá thường cao hơn Shopee; ghi rõ trong note.
+4. TikTok Shop nếu đọc được trang sản phẩm.
 
-## 3. Tính
-1. `aph.py profit-inputs --product <id> --platform shopee`: xem đầu vào đã ghép và danh sách `missing`.
-2. `aph.py max-cost --run <run> --product <id> --platform shopee` (mặc định mục tiêu 10% và 20%). Ra giá nhập tối đa cho từng kịch bản. `null` nghĩa là không có giá nhập nào đạt mục tiêu ở giá bán đó.
-3. Có giá nhập thật → `aph.py profit --run <run> --product <id> --platform shopee --inputs auto`. Chỉ kết luận khi `status=complete`.
-4. Lặp lại cho `tiktok_shop`.
-- Kiểm tra `sources.unit_cost`: nếu supplier được chọn lệch biến thể (ví dụ khóa app TTLock khi sản phẩm là khóa Tuya), ghi rõ trong báo cáo và chạy lại với `--inputs @file` sau khi bỏ supplier đó.
+Mỗi tin đăng đúng model ghi `aph.py add --kind listing`:
+- `product_id`, `platform`, `url`, `title`, `price_vnd` (giá đang bán, không phải giá gạch), `sold_label`, `variant_key`, `verification=observed`.
+- `evidence_excerpt` chép nguyên văn đoạn chứa giá (công cụ kiểm tra giá nằm trong đoạn trích).
+- Bỏ tin đăng combo nhiều cái, hàng khác model, phụ kiện. Ghi lệch nhỏ (màu, số nút) trong `note`.
+- Cần **≥ 3 tin đăng** mỗi model: `aph.py prices --product <id> --variant <key>`.
+
+## 3. Giá nhập tối đa
+`aph.py max-cost --run <run> --product <id> --platform shopee --variant <key>` (mặc định mục tiêu lãi ròng 10% và 20%), lặp lại cho `tiktok_shop`.
+- Giá bán: thận trọng = phân vị 25, cơ sở = trung vị, lạc quan = phân vị 75 của các tin đăng.
+- Phí sàn: tổng phí người dùng chốt 27% (`shopee_total_fee_pct_user`, `tiktok_shop_total_fee_pct_user`).
+- Chi phí shop (quảng cáo, ship shop chịu, đóng gói, vận hành, hoàn hàng, ship nhập): chỉ dùng khi người dùng đã cung cấp, lưu thành assumption `cost_<trường>` (`verification=user_input`). Chưa có → công cụ tính bằng 0 và trả `status=partial` cùng danh sách `excluded_costs`. Khi đó kết quả là **trần giá nhập**: báo cáo phải ghi rõ giá thực tế phải thấp hơn, và chưa trừ những khoản nào.
+- `null` = ở giá bán đó không có giá nhập nào đạt mục tiêu.
+- Gợi ý đàm phán (nhận định của AI): mở đầu ở mức giá nhập tối đa của kịch bản thận trọng với mục tiêu 20%. Không chấp nhận giá cao hơn mức của kịch bản cơ sở với mục tiêu 10%.
 
 ## 4. Báo cáo tiếng Việt
 Lưu ở `/mnt/project-files/ai-product-hunter/reports/daily/`:
-- Bảng giá thị trường: số tin đăng, p25 / trung vị / p75, mã listing.
-- Bảng giá nhập tối đa (10% và 20%) theo 3 kịch bản, từng sàn.
-- Nếu có giá nhập: lãi ròng mỗi sản phẩm, biên %, điểm hòa vốn, vốn lô thử và có vừa 10 triệu không.
-- **Còn thiếu**: các mục trong `missing`, ai cần cung cấp.
+- Bảng giá thị trường theo model: số tin đăng, nguồn, thấp nhất / p25 / trung vị / p75 / cao nhất, mã listing.
+- Bảng giá nhập tối đa theo model, sàn, kịch bản, mục tiêu 10% và 20%; ghi "trần, chưa trừ …" nếu `partial`.
+- Model có giá lẻ đề xuất của hãng (supplier `retail_listed`): chạy thêm `--retail <sup_id>` để công cụ tính **chiết khấu tối thiểu cần xin** trên giá lẻ đề xuất.
 - Tách **Dữ liệu quan sát** và **Nhận định của AI**. **Không truy cập được**: mọi `log-access` khác `ok`.
 - Kết thúc: `aph.py finish-run …`, `aph.py reindex`.
 
 ## Không được
-Tự đặt chi phí quảng cáo, hoàn hàng, đóng gói… · dùng giá bán lẻ hãng hay giá 1688 làm giá nhập · lấy giá từ đoạn trích Google · tính tay thay công cụ · kết luận lợi nhuận khi `status=incomplete` · vượt CAPTCHA.
+Trộn giá của nhiều model khác nhau · lấy giá từ đoạn trích Google · tự đặt chi phí quảng cáo/ship/hoàn hàng · gọi trần giá nhập là giá chấp nhận được khi còn `excluded_costs` · tính tay thay công cụ · vượt CAPTCHA.

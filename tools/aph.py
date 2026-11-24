@@ -707,13 +707,16 @@ def _quantile(xs, q):
 MIN_PRICE_LISTINGS = 3
 
 
-def price_stats(store, pid, platform=None):
-    """Giá bán thị trường từ listing đối thủ (price_vnd). Kịch bản: thận trọng = phân vị 25, cơ sở = trung vị, lạc quan = phân vị 75."""
+def price_stats(store, pid, platform=None, variant=None):
+    """Giá bán thị trường từ listing đối thủ (price_vnd). Kịch bản: thận trọng = phân vị 25, cơ sở = trung vị, lạc quan = phân vị 75.
+    variant: chỉ lấy listing có variant_key này (cùng model/biến thể, ví dụ 'hunonic-datic-2nut')."""
     ls = [r for r in store.records(pid, kind="listing") if isinstance(r.get("price_vnd"), (int, float)) and r["price_vnd"] > 0]
     if platform:
         ls = [r for r in ls if r.get("platform") == platform]
+    if variant:
+        ls = [r for r in ls if r.get("variant_key") == variant]
     prices = [float(r["price_vnd"]) for r in ls]
-    res = {"product_id": pid, "n": len(prices), "listing_ids": [r["id"] for r in ls],
+    res = {"product_id": pid, "variant": variant, "n": len(prices), "listing_ids": [r["id"] for r in ls],
            "platforms": sorted({r.get("platform") for r in ls})}
     if len(prices) < MIN_PRICE_LISTINGS:
         res.update(status="insufficient", message=f"Cần ≥ {MIN_PRICE_LISTINGS} tin đăng có giá cùng biến thể; mới có {len(prices)}")
@@ -734,13 +737,13 @@ def _spec_from(value, ref):
     return {**{s: value for s in SCENARIOS}, "ref": ref}
 
 
-def build_profit_inputs(store, pid, platform):
+def build_profit_inputs(store, pid, platform, variant=None):
     """Ghép đầu vào lợi nhuận từ kho: giá bán thị trường, phí sàn người dùng chốt, hồ sơ chi phí (assumption cost_*),
     giá nhập từ báo giá đại lý / giá sỉ niêm yết trong nước. Không tự điền số nào; thiếu thì ghi vào missing."""
     amap = {a["id"]: a for a in store.assumptions()}
     usable = lambda a: a is not None and a.get("status") != "missing" and a.get("value") is not None
     inputs, sources, missing = {}, {}, []
-    ps = price_stats(store, pid)
+    ps = price_stats(store, pid, variant=variant)
     if ps["status"] == "ok":
         inputs["sell_price"] = {"conservative": ps["p25"], "base": ps["median"], "optimistic": ps["p75"],
                                 "ref": "+".join(ps["listing_ids"])}
@@ -775,22 +778,30 @@ def build_profit_inputs(store, pid, platform):
         sources["unit_cost"] = f"{s['id']} ({s.get('name')}, {s['price_basis']})"
     else:
         missing += ["unit_cost", "moq"]
-    return {"product_id": pid, "platform": platform, "inputs": inputs, "sources": sources,
+    return {"product_id": pid, "platform": platform, "variant": variant, "inputs": inputs, "sources": sources,
             "missing": [f for f in PROFIT_FIELDS if f in missing], "price_stats": ps}
 
 
 MAX_COST_FIELDS = [f for f in PROFIT_FIELDS if f not in ("unit_cost", "moq", "fixed_test_cost")]
 
 
-def max_unit_cost(inputs: dict, targets=(10, 20), fee_errors=None):
+MAX_COST_REQUIRED = ["sell_price", "platform_fee_pct", "payment_fee_pct"]
+
+
+def max_unit_cost(inputs: dict, targets=(10, 20), fee_errors=None, strict=False):
     """Giá nhập tối đa (VND/sp) để biên lợi nhuận ròng còn đạt mục tiêu, cho từng kịch bản.
-    Cùng công thức với profit_sim, giải ngược theo unit_cost."""
+    Cùng công thức với profit_sim, giải ngược theo unit_cost.
+    Bắt buộc có giá bán và phí sàn. Chi phí shop chưa có (quảng cáo, ship, đóng gói, hoàn hàng…) được tính là 0
+    và liệt kê trong excluded_costs -> status=partial: kết quả là TRẦN giá nhập, người dùng phải trừ tiếp các chi phí đó.
+    strict=True: thiếu bất kỳ chi phí nào -> incomplete."""
     if fee_errors:
         return {"status": "incomplete", "missing": [], "unverified_fees": fee_errors}
-    missing = [f for f in MAX_COST_FIELDS if f not in inputs]
+    missing = [f for f in (MAX_COST_FIELDS if strict else MAX_COST_REQUIRED) if f not in inputs]
     if missing:
         return {"status": "incomplete", "missing": missing,
-                "message": "Thiếu chi phí nên chưa tính được giá nhập tối đa."}
+                "message": "Thiếu giá bán thị trường hoặc phí sàn nên chưa tính được giá nhập tối đa."}
+    excluded = [f for f in MAX_COST_FIELDS if f not in inputs]
+    inputs = {**inputs, **{f: 0 for f in excluded}}
     out = {}
     for sc in SCENARIOS:
         try:
@@ -806,7 +817,23 @@ def max_unit_cost(inputs: dict, targets=(10, 20), fee_errors=None):
             u = math.floor(landed - v["inbound_shipping"])
             row[f"max_unit_cost_at_{m}pct"] = u if u > 0 else None
         out[sc] = row
-    return {"status": "complete", "targets_pct": list(targets), "scenarios": out}
+    res = {"status": "partial" if excluded else "complete", "targets_pct": list(targets), "scenarios": out,
+           "excluded_costs": excluded}
+    if excluded:
+        res["message"] = ("Trần giá nhập: chưa trừ " + ", ".join(excluded) +
+                          ". Giá nhập chấp nhận được thực tế phải thấp hơn, trừ thêm các chi phí này.")
+    return res
+
+
+def discount_needed(mc: dict, retail_price: float, ref: str):
+    """Chiết khấu trên giá lẻ đề xuất cần xin để giá nhập không vượt mức tối đa: 1 - giá nhập tối đa / giá lẻ (%)."""
+    if mc.get("status") not in ("complete", "partial"):
+        return None
+    out = {"retail_price": retail_price, "ref": ref}
+    for sc, row in mc["scenarios"].items():
+        out[sc] = {k.replace("max_unit_cost", "min_discount_pct"): (round(100 * (1 - v / retail_price), 1) if v is not None else None)
+                   for k, v in row.items() if k.startswith("max_unit_cost")}
+    return out
 
 
 # ---------------------------------------------------------------- scoring
@@ -1126,13 +1153,15 @@ def main(argv=None):
     s.add_argument("--platform", required=True, choices=["shopee", "tiktok_shop", "lazada", "own_site"])
     s.add_argument("--dry", action="store_true", help="Chỉ tính, không ghi")
     s = sub.add_parser("prices", help="Giá bán thị trường (p25/trung vị/p75) từ listing đối thủ"); s.add_argument("--product", required=True)
-    s.add_argument("--platform")
+    s.add_argument("--platform"); s.add_argument("--variant")
     s = sub.add_parser("profit-inputs", help="Ghép đầu vào lợi nhuận từ kho, liệt kê mục còn thiếu")
     s.add_argument("--product", required=True); s.add_argument("--platform", required=True, choices=["shopee", "tiktok_shop", "lazada", "own_site"])
+    s.add_argument("--variant")
     s = sub.add_parser("max-cost", help="Giá nhập tối đa để còn lãi ròng theo mục tiêu (%)"); s.add_argument("--run")
     s.add_argument("--product", required=True); s.add_argument("--platform", required=True, choices=["shopee", "tiktok_shop", "lazada", "own_site"])
     s.add_argument("--inputs", help="JSON hoặc @file; bỏ trống = ghép từ kho (profit-inputs)"); s.add_argument("--targets", default="10,20")
-    s.add_argument("--dry", action="store_true")
+    s.add_argument("--retail", help="id supplier retail_listed (giá lẻ đề xuất của hãng) để tính chiết khấu cần xin")
+    s.add_argument("--variant"); s.add_argument("--dry", action="store_true"); s.add_argument("--strict", action="store_true", help="Thiếu chi phí shop thì không tính")
     s = sub.add_parser("confidence"); s.add_argument("--product", required=True)
     s = sub.add_parser("score"); s.add_argument("--run"); s.add_argument("--product", required=True); s.add_argument("--scores", required=True)
     s.add_argument("--types", default="[]"); s.add_argument("--dry", action="store_true")
@@ -1188,21 +1217,27 @@ def main(argv=None):
                     raise APHError("Cần --run để ghi kết quả (hoặc dùng --dry)")
                 res = st.append(a.run, "profit", {"product_id": a.product, "inputs": inp, **res}, validate_kind=False)
         elif a.cmd == "prices":
-            st.product(a.product); res = price_stats(st, a.product, a.platform)
+            st.product(a.product); res = price_stats(st, a.product, a.platform, a.variant)
         elif a.cmd == "profit-inputs":
-            st.product(a.product); res = build_profit_inputs(st, a.product, a.platform)
+            st.product(a.product); res = build_profit_inputs(st, a.product, a.platform, a.variant)
         elif a.cmd == "max-cost":
             prod = st.product(a.product)
             amap = {x["id"]: x for x in st.assumptions()}
             biz = cfg("business_profile")
-            built = None if a.inputs else build_profit_inputs(st, a.product, a.platform)
+            built = None if a.inputs else build_profit_inputs(st, a.product, a.platform, a.variant)
             inp = read_json_arg(a.inputs) if a.inputs else built["inputs"]
             cat = (prod.get("platform_categories") or {}).get(a.platform)
             fee_errs = check_fee_refs(inp, amap, a.platform, cat, (biz.get("shop_type") or {}).get(a.platform))
-            res = max_unit_cost(inp, [int(x) if float(x).is_integer() else float(x) for x in a.targets.split(",")], fee_errs)
+            res = max_unit_cost(inp, [int(x) if float(x).is_integer() else float(x) for x in a.targets.split(",")], fee_errs, a.strict)
             res["platform"] = a.platform
+            res["variant"] = a.variant
+            if a.retail:
+                sup = next((r for r in st.records(a.product, kind="supplier") if r["id"] == a.retail), None)
+                if not sup or sup.get("price_basis") != "retail_listed" or not sup.get("price_tiers"):
+                    raise APHError("--retail phải là supplier retail_listed có giá của sản phẩm này")
+                res["discount_needed"] = discount_needed(res, min(sup["price_tiers"], key=lambda x: x.get("min_qty", 1))["price"], a.retail)
             if built:
-                res["sources"] = built["sources"]
+                res["sources"] = built["sources"]; res["price_stats"] = built["price_stats"]
             if not a.dry:
                 if not a.run:
                     raise APHError("Cần --run để ghi kết quả (hoặc dùng --dry)")
