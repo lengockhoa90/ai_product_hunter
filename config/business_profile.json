@@ -19,8 +19,9 @@
     "new_category"
   ],
   "shop_type": {
-    "shopee": null,
+    "shopee": "normal",
     "tiktok_shop": null,
-    "_note": "mall | normal; null = chưa biết, phí theo loại shop sẽ bị coi là chưa xác minh"
+    "_note": "mall | normal; null = chưa biết, phí theo loại shop sẽ bị coi là chưa xác minh",
+    "_source": "Khoa Le, thread dự án, 2026-11-24: \"Shopee của tôi là shop thường\""
   }
 }
