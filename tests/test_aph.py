@@ -4,6 +4,7 @@ Dữ liệu trong test chỉ để kiểm tra logic công cụ, ghi vào thư m�
 """
 import datetime as dt
 import json
+import pathlib
 import sys
 import tempfile
 import unittest
@@ -599,3 +600,88 @@ class TestVendorReview(Base):
         self.assertEqual(gaps["level"], "low")
         self.assertEqual(gaps["ask_vendor"], ["Pháp nhân", "Xuất hóa đơn"])
         self.assertEqual(aph.list_vendors(self.st)[0]["review_id"], gaps["review_id"])  # bản mới nhất của mỗi NCC
+
+
+class TestProfitAnalyst(Base):
+    """Agent 06: giá bán thị trường, ghép đầu vào từ kho, giá nhập tối đa."""
+
+    def listing(self, pid, price, **kw):
+        d = {"product_id": pid, "platform": "lazada", "url": "https://lazada.vn/x", "verification": "observed",
+             "price_vnd": price, "evidence_excerpt": f"Cảm biến cửa Zigbee ₫{price:,}", **kw}
+        return self.st.append(self.run, "listing", d)
+
+    def set_assumptions(self, extra=()):
+        base = [{"id": "shopee_total_fee_pct_user", "value": 27, "platform": "shopee", "applies_to_categories": ["all"],
+                 "shop_type": "normal", "source_url": "user:test", "source_date": "2026-11-24", "valid_until": "2099-01-01",
+                 "verification": "user_input"}]
+        p = pathlib.Path(self.tmp.name) / "assumptions" / "assumptions.json"
+        p.write_text(json.dumps({"assumptions": base + list(extra)}, ensure_ascii=False), encoding="utf-8")
+
+    def cost_profile(self):
+        v = lambda c, b, o: {"conservative": c, "base": b, "optimistic": o}
+        mk = lambda f, val: {"id": f"cost_{f}", "value": val, "verification": "user_input", "source_url": "user:test",
+                             "source_date": "2026-11-24"}
+        return [mk("inbound_shipping", 5000), mk("ads_pct", v(15, 10, 5)), mk("seller_shipping", 0), mk("packaging", 3000),
+                mk("ops_per_unit", 2000), mk("return_rate_pct", v(8, 5, 3)), mk("return_loss_pct", 40),
+                mk("other_per_unit", 0), mk("fixed_test_cost", 1000000)]
+
+    def test_listing_price_must_be_in_excerpt(self):
+        pid = self.product()["product_id"]
+        with self.assertRaises(aph.APHError):
+            self.listing(pid, 250000, evidence_excerpt="Cảm biến cửa Zigbee ₫199.000")
+
+    def test_price_stats_quantiles_and_minimum(self):
+        pid = self.product()["product_id"]
+        self.listing(pid, 200000); self.listing(pid, 300000)
+        self.assertEqual(aph.price_stats(self.st, pid)["status"], "insufficient")
+        self.listing(pid, 400000); self.listing(pid, 500000)
+        s = aph.price_stats(self.st, pid)
+        self.assertEqual((s["p25"], s["median"], s["p75"]), (275000, 350000, 425000))
+
+    def test_build_inputs_lists_missing_without_inventing(self):
+        pid = self.product()["product_id"]
+        for p in (200000, 300000, 400000):
+            self.listing(pid, p)
+        self.set_assumptions()
+        b = aph.build_profit_inputs(self.st, pid, "shopee")
+        self.assertEqual(b["inputs"]["sell_price"]["base"], 300000)
+        self.assertEqual(b["inputs"]["payment_fee_pct"]["base"], 0)
+        self.assertIn("unit_cost", b["missing"]); self.assertIn("ads_pct", b["missing"])
+        self.assertNotIn("ads_pct", b["inputs"])
+        # giá bán lẻ của hãng không được dùng làm giá nhập
+        self.st.append(self.run, "supplier", {"product_id": pid, "name": "Hãng", "platform": "web", "url": "https://h.example/sp",
+                                              "quote_status": "need_quote", "verification": "observed", "price_basis": "retail_listed",
+                                              "price_tiers": [{"min_qty": 1, "price": 455000}], "evidence_excerpt": "Giá 455.000₫"})
+        self.assertIn("unit_cost", aph.build_profit_inputs(self.st, pid, "shopee")["missing"])
+
+    def test_full_chain_and_max_cost_round_trip(self):
+        pid = self.product()["product_id"]
+        for p in (250000, 290000, 320000):
+            self.listing(pid, p)
+        self.set_assumptions(self.cost_profile())
+        self.st.append(self.run, "supplier", {"product_id": pid, "name": "Đại lý", "platform": "user", "url": "user:bang-gia",
+                                              "quote_status": "quoted", "verification": "user_input", "price_basis": "dealer_quote",
+                                              "price_tiers": [{"min_qty": 10, "price": 120000}]})
+        b = aph.build_profit_inputs(self.st, pid, "shopee")
+        self.assertEqual(b["missing"], [])
+        amap = {a["id"]: a for a in self.st.assumptions()}
+        self.assertEqual(aph.check_fee_refs(b["inputs"], amap, "shopee", None, "normal", "2026-11-24"), [])
+        known = {r["id"] for r in self.st.records(pid)}
+        r = aph.profit_sim(b["inputs"], BUSINESS, known, set(amap))
+        self.assertEqual(r["status"], "complete"); self.assertEqual(r["unreferenced"], [])
+        # tính tay kịch bản cơ sở: p=290000, landed=125000, fees 27% = 78300, ads 10% = 29000,
+        # returns 5%*(125000*40%) = 2500 -> net = 290000-125000-78300-29000-0-3000-2000-2500 = 50200
+        self.assertEqual(r["scenarios"]["base"]["net_profit_per_unit"], 50200)
+        self.assertEqual(r["scenarios"]["base"]["test_capital"], 10 * 125000 + 1000000)
+        mc = aph.max_unit_cost(b["inputs"], (10, 20))
+        self.assertEqual(mc["status"], "complete")
+        for sc in aph.SCENARIOS:
+            for m in (10, 20):
+                u = mc["scenarios"][sc][f"max_unit_cost_at_{m}pct"]
+                chk = aph.profit_sim({**b["inputs"], "unit_cost": {s: u for s in aph.SCENARIOS} | {"ref": "user:t"}}, BUSINESS)
+                self.assertAlmostEqual(chk["scenarios"][sc]["net_margin_pct"], m, delta=0.1)
+
+    def test_max_cost_incomplete_and_not_viable(self):
+        self.assertEqual(aph.max_unit_cost({"sell_price": 100000})["status"], "incomplete")
+        inp = full_inputs(ads_pct={"conservative": 70, "base": 70, "optimistic": 70, "ref": "user:t"})
+        self.assertIsNone(aph.max_unit_cost(inp, (10,))["scenarios"]["base"]["max_unit_cost_at_10pct"])
