@@ -52,7 +52,7 @@ PC tắt, trình duyệt không phản hồi, hoặc đang chạy theo lịch (p
 Một người ghi: nếu `runs/` có run khác chưa kết thúc (dưới 2 giờ), không tạo sản phẩm mới trong run này; chỉ ghi bản ghi. Cuối run chạy `aph.py duplicates`.
 
 ## 4. Cổng kiểm tra
-- Lợi nhuận: `aph.py profit --run --product --platform shopee|tiktok_shop --inputs @file.json`. Mỗi đầu vào kèm `ref` (id observation, `assumption:<id>` trong `data/assumptions/assumptions.json`, hoặc `user:<ghi chú>`). Phí sàn (`platform_fee_pct`, `payment_fee_pct`) chỉ nhận `assumption:` có nguồn, ngày, đúng sàn, đúng ngành hàng, đúng loại shop, còn hiệu lực; sai → `unverified_fees`. Kết quả `incomplete` → không kết luận lợi nhuận.
+- Lợi nhuận: `aph.py profit --run --product --platform shopee|tiktok_shop --inputs @file.json`. Mỗi đầu vào kèm `ref` (id observation, `assumption:<id>` trong `data/assumptions/assumptions.json`, hoặc `user:<ghi chú>`). Phí sàn (`platform_fee_pct`, `payment_fee_pct`) chỉ nhận `assumption:` có nguồn, ngày, đúng sàn, đúng ngành hàng, đúng loại shop, còn hiệu lực; sai → `unverified_fees`. Kết quả `incomplete` → không kết luận lợi nhuận. Shopee (shop thường): mặc định dùng tổng phí 27% do người dùng chốt, `platform_fee_pct` 27 và `payment_fee_pct` 0, cả hai ref `assumption:shopee_total_fee_pct_user`.
 - Đánh giá: `aph.py score --run --product --scores @scores.json --types '["competition_gap"]'` (điểm thành phần theo `rules/scoring_rules.md`). Công cụ tự tính tổng, Data Confidence, trần, cổng.
 - Ghi trạng thái nghiên cứu theo `gate`: `aph.py set-status --run --product --research <status> --reason "<lý do>" --by orchestrator`.
 
