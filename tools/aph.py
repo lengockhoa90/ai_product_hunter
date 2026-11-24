@@ -766,6 +766,72 @@ def platform_of(r):
     return domain(r.get("source_url") or r.get("url"))
 
 
+TREND_ATTENTION = ("search_interest", "csi_popularity", "content_signal")
+
+
+def _median(xs):
+    xs = sorted(xs)
+    n = len(xs)
+    return (xs[n // 2] if n % 2 else (xs[n // 2 - 1] + xs[n // 2]) / 2) if n else 0
+
+
+def trend_indicator(series, window=12):
+    """Phân loại một chuỗi theo tuần (giá trị tương đối 0–100) bằng trung vị để không bị một tuần đột biến kéo lệch.
+    So trung vị `window` tuần gần nhất với `window` tuần trước đó."""
+    pts = sorted((p for p in series if isinstance(p, dict) and p.get("t") is not None and p.get("v") is not None),
+                 key=lambda p: str(p["t"]))
+    vals = [float(p["v"]) for p in pts]
+    if len(vals) < 2 * window:
+        return {"stage": "unknown", "reason": "too_few_points", "points": len(vals)}
+    nonzero = sum(v > 0 for v in vals) / len(vals)
+    if max(vals) < 10 or nonzero < 0.5:
+        return {"stage": "unknown", "reason": "low_volume", "points": len(vals), "nonzero_share": round(nonzero, 2)}
+    recent, prior = _median(vals[-window:]), _median(vals[-2 * window:-window])
+    base, early = _median(vals), _median(vals[:window])
+    if max(recent, prior) < 10:
+        return {"stage": "unknown", "reason": "low_volume", "points": len(vals), "recent_median": recent, "prior_median": prior}
+    g = (recent - prior) / max(prior, 1.0)
+    if g >= 0.3:
+        stage = "emerging" if early <= 0.2 * recent else ("trending" if recent >= 1.5 * base else "growing")
+    elif g <= -0.3:
+        stage = "declining"
+    else:
+        stage = "stable"
+    return {"stage": stage, "growth": round(g, 3), "recent_median": recent, "prior_median": prior,
+            "year_median": base, "first_window_median": early, "points": len(vals), "from": str(pts[0]["t"])[:10], "to": str(pts[-1]["t"])[:10]}
+
+
+DIRECTION = {"emerging": 1, "growing": 1, "trending": 1, "stable": 0, "declining": -1}
+
+
+def trend_assess(store, pid):
+    """Gộp chỉ báo theo từng nguồn. Kết luận giai đoạn chỉ khi ≥ 2 nguồn độc lập có tín hiệu và cùng hướng (rules/research_rules.md mục 3)."""
+    obs = [r for r in store.records(pid) if r["kind"] == "observation" and r["metric"] in TREND_ATTENTION and r.get("series")]
+    per = []
+    for r in obs:
+        ind = trend_indicator(r["series"])
+        per.append({"id": r["id"], "source": platform_of(r), "metric": r["metric"], "term": r.get("note", "")[:80], **ind})
+    usable = {}
+    for x in per:
+        if x["stage"] != "unknown":
+            usable.setdefault(x["source"], x)
+    dirs = {DIRECTION[x["stage"]] for x in usable.values()}
+    if len(usable) >= 2 and len(dirs) == 1:
+        stages = [x["stage"] for x in usable.values()]
+        stage = max(set(stages), key=stages.count)
+        basis = f"{len(usable)} nguồn cùng hướng: " + ", ".join(f"{k}={v['stage']}" for k, v in usable.items())
+    elif len(usable) >= 2:
+        stage, basis = "unknown", "Các nguồn mâu thuẫn: " + ", ".join(f"{k}={v['stage']}" for k, v in usable.items())
+    elif len(usable) == 1:
+        (k, v), = usable.items()
+        stage, basis = "unknown", f"Chỉ 1 nguồn có tín hiệu ({k}: {v['stage']}, tăng {v['growth']:+.0%} so với 12 tuần trước). Cần thêm nguồn độc lập"
+    else:
+        reasons = sorted({x.get("reason", "") for x in per}) or ["no_series"]
+        stage, basis = "unknown", "Không có chuỗi đủ dữ liệu: " + ", ".join(reasons)
+    return {"product_id": pid, "stage": stage, "basis": basis, "per_series": per,
+            "evidence": [x["id"] for x in per], "timepoints": max((x.get("points", 0) for x in per), default=0)}
+
+
 def coverage(store: Store, pid):
     """Nhu cầu dữ liệu nào đã có bằng chứng từ bao nhiêu nền tảng; nguồn nào còn thiếu hoặc bị chặn."""
     fb = cfg("source_fallbacks")["needs"]
@@ -864,6 +930,8 @@ def main(argv=None):
     sub.add_parser("list")
     sub.add_parser("duplicates")
     sub.add_parser("problems", help="Liệt kê vấn đề khách hàng và sản phẩm/bộ giải pháp gắn với từng vấn đề")
+    s = sub.add_parser("trend", help="Phân loại giai đoạn xu hướng từ chuỗi theo tuần; ghi bản ghi trend trừ khi --dry")
+    s.add_argument("--run"); s.add_argument("--product", required=True); s.add_argument("--dry", action="store_true")
     s = sub.add_parser("coverage", help="Độ phủ nguồn theo nhu cầu dữ liệu (config/source_fallbacks.json)"); s.add_argument("--product", required=True)
     sub.add_parser("reindex")
 
@@ -935,6 +1003,15 @@ def main(argv=None):
             res = list_products(st)
         elif a.cmd == "problems":
             res = list_problems(st)
+        elif a.cmd == "trend":
+            res = trend_assess(st, a.product)
+            if not a.dry:
+                if not a.run:
+                    raise APHError("trend cần --run (hoặc --dry)")
+                if not res["evidence"]:
+                    raise APHError("Không có observation chuỗi (series) nào cho sản phẩm này")
+                res["record"] = st.append(a.run, "trend", {"product_id": a.product, "stage": res["stage"], "basis": res["basis"],
+                                                          "evidence": res["evidence"], "timepoints": res["timepoints"]})["id"]
         elif a.cmd == "coverage":
             st.product(a.product); res = coverage(st, a.product)
         elif a.cmd == "duplicates":

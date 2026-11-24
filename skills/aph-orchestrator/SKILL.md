@@ -37,7 +37,7 @@ Trước khi nghiên cứu một sản phẩm: `aph.py match --name "<tên>" --f
 - Không có → `add-product --run <run_id> --json '{...}'` (category theo `config/categories.json`).
 
 ## 3. Chạy từng Agent
-Mỗi Agent có skill riêng `aph-<agent>` (Phase 3). Đã có: `skills/dtm-market-hunter/SKILL.md` (Agent 01). Khi skill Agent chưa có, làm theo mục tiêu/đầu ra trong `docs/SYSTEM_ARCHITECTURE.md` và `rules/`. Với mỗi Agent:
+Mỗi Agent có skill riêng `aph-<agent>` (Phase 3). Đã có: `skills/dtm-market-hunter/SKILL.md` (Agent 01), `skills/dtm-trend-hunter/SKILL.md` (Agent 02, giai đoạn xu hướng qua `aph.py trend`). Khi skill Agent chưa có, làm theo mục tiêu/đầu ra trong `docs/SYSTEM_ARCHITECTURE.md` và `rules/`. Với mỗi Agent:
 - Thu thập qua trình duyệt Claude trên PC (`mcp__remote-devices__Claude_Browser__*`) hoặc WebSearch; đọc trang bằng `get_page_text` hoặc `javascript_tool` (đợi 3–5 giây).
 - Ghi ngay từng dữ liệu bằng `aph.py add --run --kind observation|listing|supplier|demand|trend --json ...`. Dữ liệu `observed` phải có `evidence_excerpt` chép nguyên văn từ trang.
 - Shopee: khi gặp CAPTCHA, dừng và nhờ người dùng tự giải trong khung trình duyệt; chỉ đọc tiếp sau khi họ báo xong. Không bao giờ tự giải.
