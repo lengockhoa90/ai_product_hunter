@@ -396,6 +396,21 @@ class Store:
                     raise APHError("verification=observed bắt buộc có evidence_excerpt: đoạn trích nguyên văn từ trang chứa giá trị")
                 if not value_in_excerpt(d["value"], ex):
                     raise APHError(f"Giá trị {d['value']!r} không xuất hiện trong evidence_excerpt. Trích lại đúng đoạn chứa con số, hoặc ghi chú cách quy đổi vào note và dùng verification khác")
+        if kind == "supplier":
+            tiers = d.get("price_tiers") or []
+            if tiers and not d.get("price_basis"):
+                raise APHError("supplier có price_tiers phải ghi price_basis (retail_listed | wholesale_listed | dealer_quote | source_reference): giá bán lẻ không phải giá nhập")
+            if d["verification"] == "observed":
+                ex = d.get("evidence_excerpt")
+                if not ex or len(ex.strip()) < 8:
+                    raise APHError("supplier verification=observed bắt buộc có evidence_excerpt chép nguyên văn từ trang")
+                for t in tiers:
+                    if not isinstance(t, dict) or "price" not in t:
+                        raise APHError("mỗi price_tiers phải là {\"price\": số, \"min_qty\": số, ...}")
+                    if not value_in_excerpt(t["price"], ex):
+                        raise APHError(f"Giá {t['price']!r} trong price_tiers không xuất hiện trong evidence_excerpt")
+            if d["quote_status"] in ("listed", "quoted") and not tiers:
+                raise APHError("quote_status listed/quoted cần price_tiers; chưa có giá thì ghi need_quote")
         if kind == "solution" and d["fit"] == "bundle_component" and not d.get("bundle_with"):
             raise APHError("fit=bundle_component cần bundle_with (danh sách product_id cùng bộ)")
         if kind in ("demand", "trend") and not d["evidence"]:
@@ -850,7 +865,14 @@ def coverage(store: Store, pid):
     for need, spec in fb.items():
         items = [r for r in recs if (r["kind"] == "observation" and r["metric"] in spec["metrics"]) or r["kind"] in spec["kinds"]]
         plats = sorted({p for p in (platform_of(r) for r in items) if p})
-        out[need] = {"platforms": plats, "covered": len(plats) >= spec["min_platforms"] if spec["min_platforms"] else None,
+        extra = {}
+        if need == "supply":
+            # Giá bán lẻ hay giá gốc 1688 không phải giá nhập: chỉ giá sỉ niêm yết hoặc báo giá đại lý trong nước mới tính.
+            cost = [r for r in items if r["kind"] == "supplier" and r.get("market", "VN") == "VN"
+                    and r.get("price_basis") in ("wholesale_listed", "dealer_quote")]
+            extra = {"cost_price_known": bool(cost), "cost_price_suppliers": [r["id"] for r in cost],
+                     "need_quote": [r["id"] for r in items if r["kind"] == "supplier" and r.get("quote_status") == "need_quote"]}
+        out[need] = {**extra, "platforms": plats, "covered": len(plats) >= spec["min_platforms"] if spec["min_platforms"] else None,
                      "shopee_present": any("shopee" in p for p in plats),
                      "next_sources": [s for s, mode in spec["sources"] if not any(s in p for p in plats)]}
     return {"product_id": pid, "needs": out, "blocked_sources_seen": blocked}

@@ -97,6 +97,12 @@
       "need_quote",
       "quoted"
     ],
+    "price_basis": [
+      "retail_listed",
+      "wholesale_listed",
+      "dealer_quote",
+      "source_reference"
+    ],
     "run_type": [
       "manual",
       "scheduled"
@@ -206,10 +212,12 @@
         "trust_signals": "list",
         "trust_level": "str",
         "contact_note": "str",
+        "price_basis": "str",
         "note": "str"
       },
       "enum_fields": {
         "quote_status": "quote_status",
+        "price_basis": "price_basis",
         "verification": "verification",
         "market": "market"
       }
