@@ -187,7 +187,8 @@
         "content_quality_note": "str",
         "strengths": "list",
         "weaknesses": "list",
-        "note": "str"
+        "note": "str",
+        "variant_key": "str"
       },
       "enum_fields": {
         "verification": "verification"
