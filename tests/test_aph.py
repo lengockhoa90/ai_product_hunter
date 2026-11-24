@@ -298,5 +298,125 @@ class TestStatusAndIndex(Base):
         self.assertEqual(out, 0)
 
 
+class TestProblems(Base):
+    def problem(self, statement="Nhà bị ngập nước khi đi vắng do rò rỉ ống nước", key="water-leak-damage|home-away"):
+        return self.st.append(self.run, "problem", {"statement": statement, "problem_key": key, "category": "smart_home",
+                                                    "evidence": ["obs_x"]})
+
+    def test_problem_dedup(self):
+        a = self.problem()
+        b = self.problem(statement="Nha bi ngap nuoc khi di vang do ro ri ong nuoc", key="other-key")
+        self.assertEqual(b["status"], "existing")
+        self.assertEqual(b["id"], a["id"])
+
+    def test_problem_level_evidence_flows_to_solution_product(self):
+        prob = self.problem()
+        self.st.append(self.run, "observation", {"problem_ref": prob["id"], "agent": "demand_analyst", "metric": "question_count",
+                                                 "value": 12, "source_type": "forum", "verification": "observed", "confidence": 0.8,
+                                                 "source_url": "https://forum.vn/t/1", "evidence_excerpt": "12 câu hỏi về nhà bị ngập"})
+        pid = self.product()["product_id"]
+        before = aph.compute_confidence(self.st, pid)["criteria"]["demand"]["evidence"]
+        self.st.append(self.run, "solution", {"problem_ref": prob["id"], "product_id": pid, "fit": "partial", "rationale": "phát hiện sớm"})
+        c = aph.compute_confidence(self.st, pid)
+        self.assertEqual(before, 0)
+        self.assertEqual(c["criteria"]["demand"]["evidence"], 1)
+        self.assertIn(prob["id"], c["linked_problems"])
+
+    def test_target_required_and_must_exist(self):
+        with self.assertRaises(aph.APHError):
+            self.st.append(self.run, "demand", {"type": "complaint", "theme": "x", "evidence": ["a"]})
+        with self.assertRaises(aph.APHError):
+            self.st.append(self.run, "demand", {"problem_ref": "pro_missing", "type": "complaint", "theme": "x", "evidence": ["a"]})
+
+    def test_bundle_needs_components(self):
+        prob = self.problem()
+        pid = self.product()["product_id"]
+        with self.assertRaises(aph.APHError):
+            self.st.append(self.run, "solution", {"problem_ref": prob["id"], "product_id": pid, "fit": "bundle_component", "rationale": "r"})
+
+    def test_list_problems(self):
+        prob = self.problem()
+        self.st.append(self.run, "demand", {"problem_ref": prob["id"], "type": "question", "theme": "lắp ở đâu", "evidence": ["a"]})
+        rows = aph.list_problems(self.st)
+        self.assertEqual(rows[0]["demand_signals"], {"question": 1})
+
+
+class TestDemandNotAttentionOnly(Base):
+    def test_attention_only_is_capped(self):
+        pid = self.product()["product_id"]
+        self.obs(pid, metric="search_interest", url="https://trends.google.com/a")
+        self.obs(pid, metric="content_signal", url="https://tiktok.com/v")
+        d = aph.compute_confidence(self.st, pid)["criteria"]["demand"]
+        self.assertTrue(d["attention_only"])
+        self.assertLessEqual(d["confidence"], 0.3)
+        self.st.append(self.run, "demand", {"product_id": pid, "type": "purchase_intent", "theme": "hỏi mua", "evidence": ["x"],
+                                            "independent_sources": 3})
+        d2 = aph.compute_confidence(self.st, pid)["criteria"]["demand"]
+        self.assertFalse(d2["attention_only"])
+        self.assertGreater(d2["confidence"], 0.3)
+
+    def test_listing_count_is_not_demand(self):
+        pid = self.product()["product_id"]
+        self.obs(pid, metric="listing_count", url="https://lazada.vn/a")
+        self.assertEqual(aph.compute_confidence(self.st, pid)["criteria"]["demand"]["evidence"], 0)
+
+    def test_evidence_classes(self):
+        pid = self.product()["product_id"]
+        self.obs(pid, metric="price", url="https://lazada.vn/a")
+        self.obs(pid, metric="price", url="https://blog.vn/a", verification="reported")
+        self.st.append(self.run, "observation", {"product_id": pid, "agent": "profit_analyst", "metric": "unit_cost", "value": 100,
+                                                 "source_type": "user", "verification": "estimated", "confidence": 0.3,
+                                                 "note": "ước tính", "range_low": 80, "range_high": 120})
+        self.assertEqual(aph.compute_confidence(self.st, pid)["evidence_by_class"], {"direct": 1, "third_party": 1, "estimated": 1})
+
+
+class TestFeeVerification(unittest.TestCase):
+    A = {"tx": {"id": "tx", "platform": "shopee", "value": 6, "source_url": "https://banhang.shopee.vn/edu/article/21087",
+                "source_date": "2026-05-14", "applies_to_categories": ["all"], "shop_type": "mall", "valid_until": "2027-01-24"},
+         "fix_home": {"id": "fix_home", "platform": "shopee", "value": 9, "source_url": "https://banhang.shopee.vn/x",
+                      "source_date": "2026-10-01", "applies_to_categories": ["Nhà cửa & Đời sống"], "shop_type": "mall"},
+         "miss": {"id": "miss", "platform": "shopee", "value": None, "status": "missing"}}
+
+    def inp(self, a="assumption:fix_home", b="assumption:tx"):
+        return {"platform_fee_pct": {"base": 9, "ref": a}, "payment_fee_pct": {"base": 6, "ref": b}}
+
+    def test_valid(self):
+        self.assertEqual(aph.check_fee_refs(self.inp(), self.A, "shopee", "Nhà cửa & Đời sống", "mall", "2026-11-24"), [])
+
+    def test_user_typed_fee_rejected(self):
+        e = aph.check_fee_refs(self.inp(a="user:13%"), self.A, "shopee", "Nhà cửa & Đời sống", "mall", "2026-11-24")
+        self.assertTrue(any("platform_fee_pct" in x for x in e))
+
+    def test_wrong_category_rejected(self):
+        e = aph.check_fee_refs(self.inp(), self.A, "shopee", "Thiết bị điện tử", "mall", "2026-11-24")
+        self.assertTrue(any("ngành hàng" in x for x in e))
+
+    def test_unknown_shop_type_rejected(self):
+        self.assertTrue(aph.check_fee_refs(self.inp(), self.A, "shopee", "Nhà cửa & Đời sống", None, "2026-11-24"))
+
+    def test_missing_and_expired_and_platform(self):
+        self.assertTrue(aph.check_fee_refs(self.inp(a="assumption:miss"), self.A, "shopee", "Nhà cửa & Đời sống", "mall", "2026-11-24"))
+        self.assertTrue(aph.check_fee_refs(self.inp(), self.A, "shopee", "Nhà cửa & Đời sống", "mall", "2027-02-01"))
+        self.assertTrue(aph.check_fee_refs(self.inp(), self.A, "tiktok_shop", "Nhà cửa & Đời sống", "mall", "2026-11-24"))
+
+    def test_profit_incomplete_when_fees_unverified(self):
+        r = aph.profit_sim(full_inputs(), BUSINESS, fee_errors=["platform_fee_pct: x"])
+        self.assertEqual(r["status"], "incomplete")
+        self.assertNotIn("scenarios", r)
+
+
+class TestCoverage(Base):
+    def test_shopee_gap_reported(self):
+        pid = self.product()["product_id"]
+        self.obs(pid, metric="price", url="https://www.lazada.vn/a", platform="lazada")
+        self.st.append(self.run, "access", {"url": "https://shopee.vn/search?keyword=x", "status": "captcha"})
+        c = aph.coverage(self.st, pid)
+        self.assertEqual(c["needs"]["vn_price"]["platforms"], ["lazada"])
+        self.assertFalse(c["needs"]["vn_price"]["covered"])
+        self.assertFalse(c["needs"]["vn_price"]["shopee_present"])
+        self.assertIn("shopee", c["needs"]["vn_price"]["next_sources"])
+        self.assertEqual(c["blocked_sources_seen"], {"shopee.vn": "captcha"})
+
+
 if __name__ == "__main__":
     unittest.main()

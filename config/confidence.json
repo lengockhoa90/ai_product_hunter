@@ -1,14 +1,116 @@
 {
-  "version": "v1",
-  "verification_factor": {"observed": 1.0, "user_input": 0.8, "reported": 0.7, "estimated": 0.4, "inferred": 0.3},
-  "half_life_days": {"default": 60, "price": 30, "seller_count": 30, "listing_count": 30, "sold_label": 30, "search_interest": 30, "content_signal": 21, "supplier": 60, "demand_signal": 90},
+  "version": "v2",
+  "verification_factor": {
+    "observed": 1.0,
+    "user_input": 0.8,
+    "reported": 0.7,
+    "estimated": 0.4,
+    "inferred": 0.3
+  },
+  "half_life_days": {
+    "default": 60,
+    "price": 30,
+    "seller_count": 30,
+    "listing_count": 30,
+    "sold_label": 30,
+    "search_interest": 30,
+    "content_signal": 21,
+    "supplier": 60,
+    "demand_signal": 90
+  },
   "criterion_evidence": {
-    "demand":          {"metrics": ["search_interest", "csi_popularity", "listing_count", "sold_label"], "kinds": ["demand"], "min_sources": 2},
-    "growth":          {"metrics": ["search_interest", "csi_popularity", "content_signal", "listing_count"], "kinds": [], "min_sources": 2, "min_timepoints": 2},
-    "competition":     {"metrics": ["seller_count", "listing_count", "price"], "kinds": ["listing"], "min_sources": 2},
-    "profit":          {"metrics": ["unit_cost", "price"], "kinds": ["profit"], "min_sources": 1},
-    "sourcing":        {"metrics": ["unit_cost", "moq"], "kinds": ["supplier"], "min_sources": 1},
-    "differentiation": {"metrics": [], "kinds": ["demand", "listing"], "min_sources": 2},
-    "fit":             {"metrics": [], "kinds": ["profit"], "min_sources": 1}
+    "demand": {
+      "metrics": [
+        "search_interest",
+        "csi_popularity",
+        "content_signal",
+        "sold_label",
+        "review_count",
+        "question_count"
+      ],
+      "kinds": [
+        "demand"
+      ],
+      "min_sources": 2,
+      "attention_metrics": [
+        "search_interest",
+        "csi_popularity",
+        "content_signal"
+      ],
+      "demand_grade_types": [
+        "product_demand",
+        "unmet_need",
+        "complaint",
+        "purchase_intent",
+        "question",
+        "price_acceptance"
+      ],
+      "attention_only_cap": 0.3,
+      "_note": "Lượt tìm kiếm/độ phổ biến/lượt xem chỉ là tín hiệu chú ý. Không có bằng chứng nhu cầu thật (đã bán, câu hỏi, phàn nàn, ý định mua) thì độ tin cậy nhu cầu tối đa 0,3."
+    },
+    "growth": {
+      "metrics": [
+        "search_interest",
+        "csi_popularity",
+        "content_signal",
+        "listing_count"
+      ],
+      "kinds": [],
+      "min_sources": 2,
+      "min_timepoints": 2
+    },
+    "competition": {
+      "metrics": [
+        "seller_count",
+        "listing_count",
+        "price"
+      ],
+      "kinds": [
+        "listing"
+      ],
+      "min_sources": 2
+    },
+    "profit": {
+      "metrics": [
+        "unit_cost",
+        "price"
+      ],
+      "kinds": [
+        "profit"
+      ],
+      "min_sources": 1
+    },
+    "sourcing": {
+      "metrics": [
+        "unit_cost",
+        "moq"
+      ],
+      "kinds": [
+        "supplier"
+      ],
+      "min_sources": 1
+    },
+    "differentiation": {
+      "metrics": [],
+      "kinds": [
+        "demand",
+        "listing"
+      ],
+      "min_sources": 2
+    },
+    "fit": {
+      "metrics": [],
+      "kinds": [
+        "profit"
+      ],
+      "min_sources": 1
+    }
+  },
+  "verification_class": {
+    "observed": "direct",
+    "user_input": "direct",
+    "reported": "third_party",
+    "inferred": "inferred",
+    "estimated": "estimated"
   }
 }

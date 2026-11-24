@@ -1,67 +1,362 @@
 {
   "_doc": "Định nghĩa trường cho mọi bản ghi. tools/aph.py kiểm tra theo file này (chỉ dùng thư viện chuẩn Python). required = bắt buộc; enums = giá trị cho phép; types: str, num, int, bool, list, dict, any.",
   "enums": {
-    "verification": ["observed", "reported", "user_input", "estimated", "inferred"],
-    "source_type": ["marketplace", "search_engine", "trends", "social", "manufacturer", "distributor", "b2b", "news", "forum", "user"],
-    "market": ["VN", "CN", "global", "other"],
-    "agent": ["market_hunter", "trend_hunter", "demand_analyst", "competitor_analyst", "supplier_hunter", "profit_analyst", "opportunity_evaluator", "orchestrator", "user"],
-    "research_status": ["new", "research_more", "watchlist", "rejected", "qualified_opportunity"],
-    "business_status": ["discovered", "researching", "supplier_contacted", "sample_ordered", "testing", "launched", "successful", "failed", "rejected"],
-    "trend_stage": ["emerging", "growing", "trending", "saturated", "declining", "unknown"],
-    "demand_type": ["product_demand", "unmet_need", "complaint", "purchase_intent", "price_sensitivity"],
-    "opportunity_type": ["emerging_product", "demand_gap", "competition_gap", "price_gap", "bundle_opportunity"],
-    "access_status": ["ok", "captcha", "anti_bot", "login_required", "timeout", "empty", "blocked", "device_offline", "error"],
-    "quote_status": ["listed", "need_quote", "quoted"],
-    "run_type": ["manual", "scheduled"],
-    "depth": ["quick", "standard", "deep"]
+    "verification": [
+      "observed",
+      "reported",
+      "user_input",
+      "estimated",
+      "inferred"
+    ],
+    "source_type": [
+      "marketplace",
+      "search_engine",
+      "trends",
+      "social",
+      "manufacturer",
+      "distributor",
+      "b2b",
+      "news",
+      "forum",
+      "user"
+    ],
+    "market": [
+      "VN",
+      "CN",
+      "global",
+      "other"
+    ],
+    "agent": [
+      "market_hunter",
+      "trend_hunter",
+      "demand_analyst",
+      "competitor_analyst",
+      "supplier_hunter",
+      "profit_analyst",
+      "opportunity_evaluator",
+      "orchestrator",
+      "user"
+    ],
+    "research_status": [
+      "new",
+      "research_more",
+      "watchlist",
+      "rejected",
+      "qualified_opportunity"
+    ],
+    "business_status": [
+      "discovered",
+      "researching",
+      "supplier_contacted",
+      "sample_ordered",
+      "testing",
+      "launched",
+      "successful",
+      "failed",
+      "rejected"
+    ],
+    "trend_stage": [
+      "emerging",
+      "growing",
+      "trending",
+      "saturated",
+      "declining",
+      "unknown"
+    ],
+    "demand_type": [
+      "product_demand",
+      "unmet_need",
+      "complaint",
+      "purchase_intent",
+      "price_sensitivity",
+      "question",
+      "alternative_solution",
+      "price_acceptance"
+    ],
+    "opportunity_type": [
+      "emerging_product",
+      "demand_gap",
+      "competition_gap",
+      "price_gap",
+      "bundle_opportunity"
+    ],
+    "access_status": [
+      "ok",
+      "captcha",
+      "anti_bot",
+      "login_required",
+      "timeout",
+      "empty",
+      "blocked",
+      "device_offline",
+      "error"
+    ],
+    "quote_status": [
+      "listed",
+      "need_quote",
+      "quoted"
+    ],
+    "run_type": [
+      "manual",
+      "scheduled"
+    ],
+    "depth": [
+      "quick",
+      "standard",
+      "deep"
+    ],
+    "problem_status": [
+      "candidate",
+      "validated",
+      "rejected"
+    ],
+    "solution_fit": [
+      "full",
+      "partial",
+      "bundle_component"
+    ],
+    "verification_class": [
+      "direct",
+      "third_party",
+      "inferred",
+      "estimated"
+    ]
   },
   "kinds": {
     "observation": {
-      "required": {"product_id": "str", "agent": "str", "metric": "str", "value": "any", "source_type": "str", "verification": "str", "confidence": "num"},
-      "optional": {"evidence_excerpt": "str", "unit": "str", "range_low": "num", "range_high": "num", "market": "str", "platform": "str", "source_url": "str", "observed_at": "str", "valid_until": "str", "note": "str", "series": "list"},
-      "enum_fields": {"agent": "agent", "source_type": "source_type", "verification": "verification", "market": "market"}
+      "required": {
+        "agent": "str",
+        "metric": "str",
+        "value": "any",
+        "source_type": "str",
+        "verification": "str",
+        "confidence": "num"
+      },
+      "optional": {
+        "evidence_excerpt": "str",
+        "unit": "str",
+        "range_low": "num",
+        "range_high": "num",
+        "market": "str",
+        "platform": "str",
+        "source_url": "str",
+        "observed_at": "str",
+        "valid_until": "str",
+        "note": "str",
+        "series": "list",
+        "product_id": "str",
+        "problem_ref": "str"
+      },
+      "enum_fields": {
+        "agent": "agent",
+        "source_type": "source_type",
+        "verification": "verification",
+        "market": "market"
+      }
     },
     "listing": {
-      "required": {"product_id": "str", "platform": "str", "url": "str", "verification": "str"},
-      "optional": {"evidence_excerpt": "str", "shop_name": "str", "title": "str", "price_vnd": "num", "sold_label": "str", "rating": "num", "review_count": "int", "warranty": "str", "location": "str", "content_quality_note": "str", "strengths": "list", "weaknesses": "list", "note": "str"},
-      "enum_fields": {"verification": "verification"}
+      "required": {
+        "product_id": "str",
+        "platform": "str",
+        "url": "str",
+        "verification": "str"
+      },
+      "optional": {
+        "evidence_excerpt": "str",
+        "shop_name": "str",
+        "title": "str",
+        "price_vnd": "num",
+        "sold_label": "str",
+        "rating": "num",
+        "review_count": "int",
+        "warranty": "str",
+        "location": "str",
+        "content_quality_note": "str",
+        "strengths": "list",
+        "weaknesses": "list",
+        "note": "str"
+      },
+      "enum_fields": {
+        "verification": "verification"
+      }
     },
     "supplier": {
-      "required": {"product_id": "str", "name": "str", "platform": "str", "url": "str", "quote_status": "str", "verification": "str"},
-      "optional": {"evidence_excerpt": "str", "market": "str", "price_tiers": "list", "currency": "str", "moq": "int", "oem_odm": "bool", "lead_time": "str", "certifications": "list", "warranty": "str", "ship_to_vn": "str", "years_active": "num", "rating": "num", "trust_signals": "list", "trust_level": "str", "contact_note": "str", "note": "str"},
-      "enum_fields": {"quote_status": "quote_status", "verification": "verification", "market": "market"}
+      "required": {
+        "product_id": "str",
+        "name": "str",
+        "platform": "str",
+        "url": "str",
+        "quote_status": "str",
+        "verification": "str"
+      },
+      "optional": {
+        "evidence_excerpt": "str",
+        "market": "str",
+        "price_tiers": "list",
+        "currency": "str",
+        "moq": "int",
+        "oem_odm": "bool",
+        "lead_time": "str",
+        "certifications": "list",
+        "warranty": "str",
+        "ship_to_vn": "str",
+        "years_active": "num",
+        "rating": "num",
+        "trust_signals": "list",
+        "trust_level": "str",
+        "contact_note": "str",
+        "note": "str"
+      },
+      "enum_fields": {
+        "quote_status": "quote_status",
+        "verification": "verification",
+        "market": "market"
+      }
     },
     "demand": {
-      "required": {"product_id": "str", "type": "str", "theme": "str", "evidence": "list"},
-      "optional": {"independent_sources": "int", "quotes_summary": "str", "note": "str"},
-      "enum_fields": {"type": "demand_type"}
+      "required": {
+        "type": "str",
+        "theme": "str",
+        "evidence": "list"
+      },
+      "optional": {
+        "independent_sources": "int",
+        "quotes_summary": "str",
+        "note": "str",
+        "product_id": "str",
+        "problem_ref": "str",
+        "price_low_vnd": "num",
+        "price_high_vnd": "num",
+        "alternatives": "list"
+      },
+      "enum_fields": {
+        "type": "demand_type"
+      }
     },
     "trend": {
-      "required": {"product_id": "str", "stage": "str", "basis": "str", "evidence": "list"},
-      "optional": {"timepoints": "int", "note": "str"},
-      "enum_fields": {"stage": "trend_stage"}
+      "required": {
+        "product_id": "str",
+        "stage": "str",
+        "basis": "str",
+        "evidence": "list"
+      },
+      "optional": {
+        "timepoints": "int",
+        "note": "str"
+      },
+      "enum_fields": {
+        "stage": "trend_stage"
+      }
     },
     "decision": {
-      "required": {"product_id": "str"},
-      "optional": {"research_status": "str", "business_status": "str", "reason": "str", "by": "str"},
-      "enum_fields": {"research_status": "research_status", "business_status": "business_status"}
+      "required": {
+        "product_id": "str"
+      },
+      "optional": {
+        "research_status": "str",
+        "business_status": "str",
+        "reason": "str",
+        "by": "str"
+      },
+      "enum_fields": {
+        "research_status": "research_status",
+        "business_status": "business_status"
+      }
     },
     "outcome": {
-      "required": {"product_id": "str", "period": "str"},
-      "optional": {"units_sold": "int", "revenue_vnd": "num", "profit_vnd": "num", "ad_spend_vnd": "num", "return_rate_pct": "num", "feedback": "str", "channel": "str"}
+      "required": {
+        "product_id": "str",
+        "period": "str"
+      },
+      "optional": {
+        "units_sold": "int",
+        "revenue_vnd": "num",
+        "profit_vnd": "num",
+        "ad_spend_vnd": "num",
+        "return_rate_pct": "num",
+        "feedback": "str",
+        "channel": "str"
+      }
     },
     "watch": {
-      "required": {"product_id": "str", "metrics": "list", "every_days": "int", "until": "str"},
-      "optional": {"note": "str"}
+      "required": {
+        "product_id": "str",
+        "metrics": "list",
+        "every_days": "int",
+        "until": "str"
+      },
+      "optional": {
+        "note": "str"
+      }
     },
     "access": {
-      "required": {"url": "str", "status": "str"},
-      "optional": {"agent": "str", "note": "str"},
-      "enum_fields": {"status": "access_status"}
+      "required": {
+        "url": "str",
+        "status": "str"
+      },
+      "optional": {
+        "agent": "str",
+        "note": "str"
+      },
+      "enum_fields": {
+        "status": "access_status"
+      }
+    },
+    "problem": {
+      "required": {
+        "statement": "str",
+        "problem_key": "str",
+        "category": "str",
+        "evidence": "list"
+      },
+      "optional": {
+        "segment": "str",
+        "context": "str",
+        "existing_solutions": "list",
+        "solution_gaps": "list",
+        "status": "str",
+        "note": "str"
+      },
+      "enum_fields": {
+        "status": "problem_status"
+      }
+    },
+    "solution": {
+      "required": {
+        "problem_ref": "str",
+        "product_id": "str",
+        "fit": "str",
+        "rationale": "str"
+      },
+      "optional": {
+        "evidence": "list",
+        "bundle_with": "list",
+        "note": "str"
+      },
+      "enum_fields": {
+        "fit": "solution_fit"
+      }
     }
   },
   "product": {
-    "required": {"canonical_name": "str", "category": "str", "function_key": "str"},
-    "optional": {"aliases": "list", "key_specs": "dict", "description": "str", "use_case": "str", "image_url": "str", "relations": "list", "first_seen_market": "str", "first_seen_source": "str", "why_notable": "str", "new_to_market_evidence": "str"}
-  }
+    "required": {
+      "canonical_name": "str",
+      "category": "str",
+      "function_key": "str"
+    },
+    "optional": {
+      "aliases": "list",
+      "key_specs": "dict",
+      "description": "str",
+      "use_case": "str",
+      "image_url": "str",
+      "relations": "list",
+      "first_seen_market": "str",
+      "first_seen_source": "str",
+      "why_notable": "str",
+      "new_to_market_evidence": "str",
+      "platform_categories": "dict"
+    }
+  },
+  "_doc_targets": "observation và demand cần product_id hoặc problem_ref (ít nhất một)."
 }

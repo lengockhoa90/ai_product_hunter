@@ -342,6 +342,18 @@ class Store:
             validate(SCHEMA["kinds"][kind], data, kind)
         if "product_id" in data:
             self.product(data["product_id"])
+        if kind in ("observation", "demand") and not (data.get("product_id") or data.get("problem_ref")):
+            raise APHError(f"{kind} cần product_id hoặc problem_ref")
+        if data.get("problem_ref"):
+            self.problem(data["problem_ref"])
+        if kind == "problem":
+            data["problem_key"] = norm_key(data["problem_key"])
+            if data["category"] not in cfg("categories"):
+                raise APHError(f"category '{data['category']}' không có trong config/categories.json")
+            for p in self.records(kind="problem"):
+                if p["problem_key"] == data["problem_key"] or similarity(p["statement"], data["statement"]) >= 0.85:
+                    return {"status": "existing", "id": p["id"], "statement": p["statement"],
+                            "hint": "Vấn đề này đã có. Gắn bằng chứng mới bằng problem_ref thay vì tạo lại."}
         self._source_rules(kind, data)
         rec = {"id": f"{kind[:3]}_{uuid.uuid4().hex[:12]}", "kind": kind, "run_id": run_id,
                "collected_at": now_iso(), **data}
@@ -350,6 +362,16 @@ class Store:
         with open(path, "a", encoding="utf-8") as f:
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
         return rec
+
+    def problem(self, ref):
+        for p in self.records(kind="problem"):
+            if p["id"] == ref:
+                return p
+        raise APHError(f"Không có vấn đề (problem) {ref}")
+
+    def problems_for(self, pid, recs=None):
+        recs = recs if recs is not None else self.records()
+        return {r["problem_ref"] for r in recs if r["kind"] == "solution" and r["product_id"] == pid}
 
     @staticmethod
     def _source_rules(kind, d):
@@ -369,7 +391,9 @@ class Store:
                     raise APHError("verification=observed bắt buộc có evidence_excerpt: đoạn trích nguyên văn từ trang chứa giá trị")
                 if not value_in_excerpt(d["value"], ex):
                     raise APHError(f"Giá trị {d['value']!r} không xuất hiện trong evidence_excerpt. Trích lại đúng đoạn chứa con số, hoặc ghi chú cách quy đổi vào note và dùng verification khác")
-        if kind in ("demand", "trend") and not d["evidence"]:
+        if kind == "solution" and d["fit"] == "bundle_component" and not d.get("bundle_with"):
+            raise APHError("fit=bundle_component cần bundle_with (danh sách product_id cùng bộ)")
+        if kind in ("demand", "trend", "problem") and not d["evidence"]:
             raise APHError(f"{kind} phải có evidence (danh sách id observation/listing)")
 
     def records(self, product_id=None, kind=None):
@@ -435,8 +459,10 @@ def evidence_quality(rec, cfgc, now=None):
 
 def compute_confidence(store: Store, pid, now=None):
     cfgc, cfgw = cfg("confidence"), cfg("scoring_weights")
-    recs = store.records(pid)
-    by_id = {r["id"]: r for r in recs}
+    allrecs = store.records()
+    probs = store.problems_for(pid, allrecs)
+    recs = [r for r in allrecs if r.get("product_id") == pid or (r.get("problem_ref") in probs and r["kind"] != "solution")]
+    by_id = {r["id"]: r for r in allrecs}
     result, total_w, acc = {}, 0, 0.0
     for crit, spec in cfgc["criterion_evidence"].items():
         items = [r for r in recs if (r["kind"] == "observation" and r["metric"] in spec["metrics"]) or r["kind"] in spec["kinds"]]
@@ -460,6 +486,13 @@ def compute_confidence(store: Store, pid, now=None):
                 sources.add("profit_simulation")
         conf = (sum(qs[:3]) / len(qs[:3])) if qs else 0.0
         conf *= min(1.0, len(sources) / spec["min_sources"]) if spec["min_sources"] else 1.0
+        attention_only = None
+        if spec.get("attention_metrics") is not None:
+            grade = [r for r in items if (r["kind"] == "observation" and r["metric"] not in spec["attention_metrics"])
+                     or (r["kind"] == "demand" and r["type"] in spec["demand_grade_types"])]
+            attention_only = bool(items) and not grade
+            if attention_only:
+                conf = min(conf, spec["attention_only_cap"])
         tps = None
         if spec.get("min_timepoints"):
             tps = timepoints(items)
@@ -467,8 +500,17 @@ def compute_confidence(store: Store, pid, now=None):
         w = cfgw["criteria"][crit]["weight"]
         total_w += w
         acc += w * conf
-        result[crit] = {"confidence": round(conf, 3), "evidence": len(items), "sources": len(sources), **({"timepoints": tps} if tps is not None else {})}
-    return {"data_confidence": round(100 * acc / total_w, 1), "criteria": result}
+        result[crit] = {"confidence": round(conf, 3), "evidence": len(items), "sources": len(sources),
+                        **({"timepoints": tps} if tps is not None else {}),
+                        **({"attention_only": attention_only} if attention_only is not None else {})}
+    vc = cfgc.get("verification_class", {})
+    classes = {}
+    for r in recs:
+        if r.get("verification"):
+            c = vc.get(r["verification"], r["verification"])
+            classes[c] = classes.get(c, 0) + 1
+    return {"data_confidence": round(100 * acc / total_w, 1), "criteria": result,
+            "evidence_by_class": classes, "linked_problems": sorted(probs)}
 
 
 def timepoints(items):
@@ -497,8 +539,48 @@ def _val(field, spec, scenario):
     raise KeyError(field)
 
 
-def profit_sim(inputs: dict, business: dict, known_ids: set[str] | None = None, assumption_ids: set[str] | None = None):
-    """Mô phỏng 3 kịch bản. Thiếu bất kỳ đầu vào nào -> status=incomplete, không xuất lợi nhuận."""
+FEE_FIELDS = ("platform_fee_pct", "payment_fee_pct")
+
+
+def check_fee_refs(inputs: dict, assumptions: dict, platform: str, category: str | None, shop_type, today=None):
+    """Phí sàn chỉ được lấy từ assumption có nguồn, có ngày, đúng sàn, đúng ngành hàng, đúng loại shop, còn hạn.
+    Trả về danh sách lỗi; rỗng = hợp lệ."""
+    today = today or dt.date.today().isoformat()
+    errs = []
+    for f in FEE_FIELDS:
+        spec = inputs.get(f)
+        ref = spec.get("ref") if isinstance(spec, dict) else None
+        ids = ref.split(":", 1)[1].split("+") if ref and ref.startswith("assumption:") else None
+        if not ids:
+            errs.append(f"{f}: phải tham chiếu assumption:<id> (biểu phí có nguồn), không dùng số tự nhập")
+            continue
+        for aid in ids:
+            a = assumptions.get(aid)
+            if a is None:
+                errs.append(f"{f}: không có assumption '{aid}'"); continue
+            if a.get("status") == "missing" or a.get("value") is None:
+                errs.append(f"{f}: '{aid}' đang missing"); continue
+            if not a.get("source_url") or not a.get("source_date"):
+                errs.append(f"{f}: '{aid}' thiếu nguồn hoặc ngày cập nhật"); continue
+            if a.get("platform") != platform:
+                errs.append(f"{f}: '{aid}' là phí của '{a.get('platform')}', không phải '{platform}'")
+            cats = a.get("applies_to_categories") or []
+            if "all" not in cats and category not in cats:
+                errs.append(f"{f}: '{aid}' không áp dụng cho ngành hàng '{category}' (chỉ: {cats or 'chưa ghi'})")
+            st = a.get("shop_type", "all")
+            if st != "all" and st != shop_type:
+                errs.append(f"{f}: '{aid}' áp dụng cho shop '{st}', loại shop hiện tại: {shop_type or 'chưa biết'}")
+            if a.get("valid_until") and a["valid_until"] < today:
+                errs.append(f"{f}: '{aid}' đã quá hạn kiểm tra lại ({a['valid_until']})")
+    return errs
+
+
+def profit_sim(inputs: dict, business: dict, known_ids: set[str] | None = None, assumption_ids: set[str] | None = None,
+               fee_errors: list[str] | None = None):
+    """Mô phỏng 3 kịch bản. Thiếu bất kỳ đầu vào nào, hoặc phí sàn chưa xác minh -> status=incomplete, không xuất lợi nhuận."""
+    if fee_errors:
+        return {"status": "incomplete", "missing": [], "unverified_fees": fee_errors,
+                "message": "Phí sàn chưa có biểu phí xác minh (nguồn + ngày + đúng ngành hàng). Đánh dấu missing, không kết luận lợi nhuận."}
     missing = [f for f in PROFIT_FIELDS if f not in inputs]
     unref = []
     for f in PROFIT_FIELDS:
@@ -639,6 +721,45 @@ def duplicates(store: Store):
     return out
 
 
+def list_problems(store: Store):
+    recs = store.records()
+    out = []
+    for p in [r for r in recs if r["kind"] == "problem"]:
+        sols = [{"product_id": r["product_id"], "fit": r["fit"], "bundle_with": r.get("bundle_with", [])}
+                for r in recs if r["kind"] == "solution" and r["problem_ref"] == p["id"]]
+        dem = [r for r in recs if r["kind"] == "demand" and r.get("problem_ref") == p["id"]]
+        out.append({"id": p["id"], "statement": p["statement"], "category": p["category"], "status": p.get("status", "candidate"),
+                    "demand_signals": {t: sum(1 for d in dem if d["type"] == t) for t in sorted({d["type"] for d in dem})},
+                    "solutions": sols, "solution_gaps": p.get("solution_gaps", [])})
+    return out
+
+
+def platform_of(r):
+    if r.get("platform"):
+        return r["platform"]
+    return domain(r.get("source_url") or r.get("url"))
+
+
+def coverage(store: Store, pid):
+    """Nhu cầu dữ liệu nào đã có bằng chứng từ bao nhiêu nền tảng; nguồn nào còn thiếu hoặc bị chặn."""
+    fb = cfg("source_fallbacks")["needs"]
+    allrecs = store.records()
+    probs = store.problems_for(pid, allrecs)
+    recs = [r for r in allrecs if r.get("product_id") == pid or r.get("problem_ref") in probs]
+    blocked = {}
+    for r in allrecs:
+        if r["kind"] == "access" and r["status"] != "ok":
+            blocked[domain(r["url"])] = r["status"]
+    out = {}
+    for need, spec in fb.items():
+        items = [r for r in recs if (r["kind"] == "observation" and r["metric"] in spec["metrics"]) or r["kind"] in spec["kinds"]]
+        plats = sorted({p for p in (platform_of(r) for r in items) if p})
+        out[need] = {"platforms": plats, "covered": len(plats) >= spec["min_platforms"] if spec["min_platforms"] else None,
+                     "shopee_present": any("shopee" in p for p in plats),
+                     "next_sources": [s for s, mode in spec["sources"] if not any(s in p for p in plats)]}
+    return {"product_id": pid, "needs": out, "blocked_sources_seen": blocked}
+
+
 def show(store: Store, pid):
     p = store.product(pid)
     recs = store.records(pid)
@@ -703,6 +824,7 @@ def main(argv=None):
     s = sub.add_parser("log-access"); s.add_argument("--run", required=True); s.add_argument("--url", required=True)
     s.add_argument("--status", required=True); s.add_argument("--agent"); s.add_argument("--note")
     s = sub.add_parser("profit"); s.add_argument("--run"); s.add_argument("--product", required=True); s.add_argument("--inputs", required=True)
+    s.add_argument("--platform", required=True, choices=["shopee", "tiktok_shop", "lazada", "own_site"])
     s.add_argument("--dry", action="store_true", help="Chỉ tính, không ghi")
     s = sub.add_parser("confidence"); s.add_argument("--product", required=True)
     s = sub.add_parser("score"); s.add_argument("--run"); s.add_argument("--product", required=True); s.add_argument("--scores", required=True)
@@ -713,6 +835,8 @@ def main(argv=None):
     s = sub.add_parser("show"); s.add_argument("--product", required=True)
     sub.add_parser("list")
     sub.add_parser("duplicates")
+    sub.add_parser("problems", help="Liệt kê vấn đề khách hàng và sản phẩm/bộ giải pháp gắn với từng vấn đề")
+    s = sub.add_parser("coverage", help="Độ phủ nguồn theo nhu cầu dữ liệu (config/source_fallbacks.json)"); s.add_argument("--product", required=True)
     sub.add_parser("reindex")
 
     a = ap.parse_args(argv)
@@ -738,10 +862,15 @@ def main(argv=None):
             if a.note: d["note"] = a.note
             res = st.append(a.run, "access", d)
         elif a.cmd == "profit":
-            st.product(a.product)
+            prod = st.product(a.product)
             known = {r["id"] for r in st.records(a.product)}
-            assumption_ids = {x["id"] for x in st.assumptions()}
-            res = profit_sim(read_json_arg(a.inputs), cfg("business_profile"), known, assumption_ids)
+            amap = {x["id"]: x for x in st.assumptions()}
+            biz = cfg("business_profile")
+            inp = read_json_arg(a.inputs)
+            cat = (prod.get("platform_categories") or {}).get(a.platform)
+            fee_errs = check_fee_refs(inp, amap, a.platform, cat, (biz.get("shop_type") or {}).get(a.platform))
+            res = profit_sim(inp, biz, known, set(amap), fee_errs)
+            res["platform"] = a.platform
             if not a.dry:
                 if not a.run:
                     raise APHError("Cần --run để ghi kết quả (hoặc dùng --dry)")
@@ -774,6 +903,10 @@ def main(argv=None):
             res = show(st, a.product)
         elif a.cmd == "list":
             res = list_products(st)
+        elif a.cmd == "problems":
+            res = list_problems(st)
+        elif a.cmd == "coverage":
+            st.product(a.product); res = coverage(st, a.product)
         elif a.cmd == "duplicates":
             res = duplicates(st)
         elif a.cmd == "reindex":

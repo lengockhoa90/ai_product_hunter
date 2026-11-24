@@ -1,8 +1,26 @@
 {
   "source": "Khoa Le trả lời trong thread dự án, 2026-11-24",
   "test_capital_vnd": 10000000,
-  "main_channels": ["shopee", "tiktok_shop"],
+  "main_channels": [
+    "shopee",
+    "tiktok_shop"
+  ],
   "sourcing_preference": "domestic",
   "sourcing_note": "Ưu tiên nguồn hàng trong nước; 1688/Alibaba chỉ tham khảo giá gốc và phát hiện sản phẩm",
-  "priority_categories": ["electrical_household", "smart_electrical", "smart_home", "iot", "home_appliance", "tech_accessories", "home_utility", "tiktok_consumer", "new_category"]
+  "priority_categories": [
+    "electrical_household",
+    "smart_electrical",
+    "smart_home",
+    "iot",
+    "home_appliance",
+    "tech_accessories",
+    "home_utility",
+    "tiktok_consumer",
+    "new_category"
+  ],
+  "shop_type": {
+    "shopee": null,
+    "tiktok_shop": null,
+    "_note": "mall | normal; null = chưa biết, phí theo loại shop sẽ bị coi là chưa xác minh"
+  }
 }

@@ -1,0 +1,172 @@
+{
+  "_doc": "Với mỗi nhu cầu dữ liệu: các nguồn theo thứ tự ưu tiên và cách truy cập. browser = trình duyệt Claude trên PC trong thread; browser_human = cần người dùng giải CAPTCHA; user_export = người dùng cung cấp file/ảnh; websearch = dùng được cả trong lịch. Kết quả kiểm thử truy cập: docs/SOURCE_ACCESS_MATRIX.md",
+  "needs": {
+    "vn_price": {
+      "metrics": [
+        "price"
+      ],
+      "kinds": [
+        "listing"
+      ],
+      "min_platforms": 2,
+      "sources": [
+        [
+          "shopee",
+          "browser_human"
+        ],
+        [
+          "lazada",
+          "browser"
+        ],
+        [
+          "tiktok_shop",
+          "browser"
+        ],
+        [
+          "google_vn",
+          "browser"
+        ],
+        [
+          "distributor_site",
+          "browser"
+        ]
+      ]
+    },
+    "vn_competition": {
+      "metrics": [
+        "seller_count",
+        "listing_count"
+      ],
+      "kinds": [
+        "listing"
+      ],
+      "min_platforms": 2,
+      "sources": [
+        [
+          "shopee",
+          "browser_human"
+        ],
+        [
+          "lazada",
+          "browser"
+        ],
+        [
+          "tiktok",
+          "browser"
+        ],
+        [
+          "google_vn",
+          "browser"
+        ]
+      ]
+    },
+    "vn_demand": {
+      "metrics": [
+        "sold_label",
+        "review_count",
+        "question_count"
+      ],
+      "kinds": [
+        "demand"
+      ],
+      "min_platforms": 2,
+      "sources": [
+        [
+          "shopee",
+          "browser_human"
+        ],
+        [
+          "lazada",
+          "browser"
+        ],
+        [
+          "tiktok",
+          "browser"
+        ],
+        [
+          "forum_vn",
+          "browser"
+        ],
+        [
+          "shopee_seller_center",
+          "user_export"
+        ]
+      ]
+    },
+    "attention": {
+      "metrics": [
+        "search_interest",
+        "csi_popularity",
+        "content_signal"
+      ],
+      "kinds": [],
+      "min_platforms": 1,
+      "sources": [
+        [
+          "google_trends",
+          "browser"
+        ],
+        [
+          "tiktok_csi",
+          "browser"
+        ],
+        [
+          "tiktok",
+          "browser"
+        ]
+      ]
+    },
+    "supply": {
+      "metrics": [
+        "unit_cost",
+        "moq"
+      ],
+      "kinds": [
+        "supplier"
+      ],
+      "min_platforms": 1,
+      "sources": [
+        [
+          "distributor_site",
+          "browser"
+        ],
+        [
+          "google_vn",
+          "browser"
+        ],
+        [
+          "1688",
+          "browser"
+        ],
+        [
+          "alibaba",
+          "browser"
+        ],
+        [
+          "websearch",
+          "websearch"
+        ]
+      ]
+    },
+    "fees": {
+      "metrics": [],
+      "kinds": [],
+      "min_platforms": 0,
+      "sources": [
+        [
+          "banhang.shopee.vn",
+          "browser"
+        ],
+        [
+          "seller.tiktok.com",
+          "browser"
+        ],
+        [
+          "shopee_seller_center",
+          "user_export"
+        ]
+      ],
+      "_note": "Phí nằm ở data/assumptions/assumptions.json, kiểm tra bằng aph.py profit"
+    }
+  }
+}
