@@ -1,0 +1,789 @@
+#!/usr/bin/env python3
+"""AI Product Hunter - công cụ dữ liệu và tính toán (chỉ dùng thư viện chuẩn Python).
+
+Mọi Agent ghi và đọc dữ liệu qua công cụ này. Claude không tự cộng điểm hay tính lợi nhuận bằng tay.
+
+Bố cục dữ liệu (APH_DATA, mặc định /mnt/project-files/ai-product-hunter/data):
+  products/<product_id>.json          hồ sơ sản phẩm (ghi có khóa)
+  records/YYYY/MM/<run_id>.jsonl      mọi bản ghi của một lần chạy (append-only)
+  runs/<run_id>.json                  nhật ký lần chạy
+  assumptions/assumptions.json        giả định chi phí có nguồn
+  index.sqlite                        chỉ mục dựng lại được (aph.py reindex)
+
+Chạy `python3 tools/aph.py -h` để xem các lệnh.
+"""
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import difflib
+import json
+import math
+import os
+import re
+import shutil
+import sqlite3
+import sys
+import tempfile
+import time
+import unicodedata
+import uuid
+from pathlib import Path
+from urllib.parse import urlparse
+
+REPO = Path(__file__).resolve().parent.parent
+DEFAULT_DATA = "/mnt/project-files/ai-product-hunter/data"
+CONFIG = REPO / "config"
+SCHEMA = json.loads((REPO / "schemas" / "entities.json").read_text(encoding="utf-8"))
+
+PROFIT_FIELDS = [
+    "sell_price", "unit_cost", "inbound_shipping", "platform_fee_pct", "payment_fee_pct",
+    "ads_pct", "seller_shipping", "packaging", "ops_per_unit", "return_rate_pct",
+    "return_loss_pct", "other_per_unit", "fixed_test_cost", "moq",
+]
+SCENARIOS = ["conservative", "base", "optimistic"]
+
+
+class APHError(Exception):
+    pass
+
+
+# ---------------------------------------------------------------- helpers
+
+def now_iso() -> str:
+    return dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def parse_time(s: str | None) -> dt.datetime | None:
+    if not s:
+        return None
+    s = s.strip().replace("Z", "+00:00")
+    try:
+        t = dt.datetime.fromisoformat(s)
+    except ValueError:
+        try:
+            t = dt.datetime.strptime(s[:10], "%Y-%m-%d")
+        except ValueError:
+            return None
+    if t.tzinfo is None:
+        t = t.replace(tzinfo=dt.timezone.utc)
+    return t
+
+
+def load_json(path: Path, default=None):
+    if not path.exists():
+        return default
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def cfg(name: str):
+    return load_json(CONFIG / f"{name}.json")
+
+
+def strip_accents(s: str) -> str:
+    s = s.replace("đ", "d").replace("Đ", "D")
+    return "".join(c for c in unicodedata.normalize("NFKD", s) if not unicodedata.combining(c))
+
+
+def norm_text(s: str) -> str:
+    s = strip_accents(s.lower())
+    return re.sub(r"[^0-9a-z一-鿿]+", " ", s).strip()
+
+
+def norm_key(s: str) -> str:
+    parts = [re.sub(r"\s+", "-", norm_text(p)) for p in s.split("|")]
+    return "|".join(p for p in parts if p)
+
+
+def similarity(a: str, b: str) -> float:
+    na, nb = norm_text(a), norm_text(b)
+    if not na or not nb:
+        return 0.0
+    seq = difflib.SequenceMatcher(None, na, nb).ratio()
+    ta, tb = set(na.split()), set(nb.split())
+    jac = len(ta & tb) / len(ta | tb) if ta | tb else 0.0
+    return round(max(seq, jac), 3)
+
+
+def value_in_excerpt(value, excerpt: str) -> bool:
+    """Giá trị quan sát phải đọc được trong đoạn trích. Số: so chuỗi chữ số (bỏ dấu . , khoảng trắng)."""
+    if isinstance(value, bool):
+        return True
+    if isinstance(value, (int, float)):
+        digits = re.sub(r"\D", "", excerpt)
+        cands = {str(int(value))} if float(value).is_integer() else {str(value).replace(".", ""), str(round(value, 1)).replace(".", "")}
+        return any(c in digits for c in cands)
+    if isinstance(value, str):
+        return norm_text(value) in norm_text(excerpt)
+    return True  # list/dict (ví dụ series): kiểm tra ở mức bản ghi con
+
+
+def domain(url: str | None) -> str | None:
+    if not url:
+        return None
+    d = urlparse(url).netloc.lower()
+    return d[4:] if d.startswith("www.") else (d or None)
+
+
+def check_type(val, t: str) -> bool:
+    return {
+        "str": isinstance(val, str),
+        "num": isinstance(val, (int, float)) and not isinstance(val, bool),
+        "int": isinstance(val, int) and not isinstance(val, bool),
+        "bool": isinstance(val, bool),
+        "list": isinstance(val, list),
+        "dict": isinstance(val, dict),
+        "any": True,
+    }[t]
+
+
+def validate(spec: dict, data: dict, label: str) -> None:
+    errs = []
+    for f, t in spec.get("required", {}).items():
+        if f not in data or data[f] in (None, ""):
+            errs.append(f"thiếu trường bắt buộc '{f}'")
+        elif not check_type(data[f], t):
+            errs.append(f"'{f}' phải là {t}")
+    for f, t in spec.get("optional", {}).items():
+        if f in data and data[f] is not None and not check_type(data[f], t):
+            errs.append(f"'{f}' phải là {t}")
+    for f, enum in spec.get("enum_fields", {}).items():
+        if f in data and data[f] is not None and data[f] not in SCHEMA["enums"][enum]:
+            errs.append(f"'{f}'='{data[f]}' không hợp lệ, cho phép: {SCHEMA['enums'][enum]}")
+    known = set(spec.get("required", {})) | set(spec.get("optional", {}))
+    extra = [k for k in data if k not in known]
+    if extra:
+        errs.append(f"trường không có trong schema: {extra}")
+    if errs:
+        raise APHError(f"{label}: " + "; ".join(errs))
+
+
+# ---------------------------------------------------------------- store
+
+class Store:
+    def __init__(self, root: str | Path):
+        self.root = Path(root)
+
+    # paths
+    @property
+    def products_dir(self):
+        return self.root / "products"
+
+    def run_path(self, run_id):
+        return self.root / "runs" / f"{run_id}.json"
+
+    def records_path(self, run_id):
+        # run_YYYYMMDDTHHMMSS_xxxx
+        y, m = run_id[4:8], run_id[8:10]
+        return self.root / "records" / y / m / f"{run_id}.jsonl"
+
+    def init(self):
+        for d in ["products", "records", "runs", "assumptions"]:
+            (self.root / d).mkdir(parents=True, exist_ok=True)
+        ap = self.root / "assumptions" / "assumptions.json"
+        if not ap.exists():
+            ap.write_text(json.dumps({"assumptions": []}, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    # lock for product files
+    def _lock(self):
+        lock = self.products_dir / ".lock"
+        for _ in range(30):
+            try:
+                fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                os.write(fd, now_iso().encode())
+                os.close(fd)
+                return lock
+            except FileExistsError:
+                try:
+                    if time.time() - lock.stat().st_mtime > 120:
+                        lock.unlink()
+                        continue
+                except FileNotFoundError:
+                    continue
+                time.sleep(1)
+        raise APHError("Không lấy được khóa products/.lock sau 30 giây")
+
+    # runs
+    def new_run(self, run_type, request, depth, plan=None):
+        if run_type not in SCHEMA["enums"]["run_type"]:
+            raise APHError(f"run_type không hợp lệ: {run_type}")
+        if depth not in SCHEMA["enums"]["depth"]:
+            raise APHError(f"depth không hợp lệ: {depth}")
+        t = dt.datetime.now(dt.timezone.utc)
+        run_id = f"run_{t:%Y%m%dT%H%M%S}_{uuid.uuid4().hex[:4]}"
+        data = {"run_id": run_id, "type": run_type, "request": request, "depth": depth,
+                "plan": plan or [], "started_at": now_iso(), "finished_at": None,
+                "agents_run": [], "summary": None}
+        p = self.run_path(run_id)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        return data
+
+    def get_run(self, run_id):
+        r = load_json(self.run_path(run_id))
+        if r is None:
+            raise APHError(f"Không có run {run_id}. Tạo bằng new-run trước.")
+        return r
+
+    def finish_run(self, run_id, summary, agents):
+        r = self.get_run(run_id)
+        r["finished_at"] = now_iso()
+        r["summary"] = summary
+        r["agents_run"] = agents
+        self.run_path(run_id).write_text(json.dumps(r, ensure_ascii=False, indent=2), encoding="utf-8")
+        return r
+
+    # products
+    def products(self):
+        if not self.products_dir.exists():
+            return []
+        return [json.loads(p.read_text(encoding="utf-8")) for p in sorted(self.products_dir.glob("prd_*.json"))]
+
+    def product(self, pid):
+        p = load_json(self.products_dir / f"{pid}.json")
+        if p is None:
+            raise APHError(f"Không có sản phẩm {pid}")
+        return p
+
+    def match(self, name, function_key=None, aliases=()):
+        fk = norm_key(function_key) if function_key else None
+        names = [name, *aliases]
+        out = []
+        for p in self.products():
+            reason, score = None, 0.0
+            if fk and p["function_key"] == fk:
+                reason, score = "function_key", 1.0
+            else:
+                pnames = [p["canonical_name"], *p.get("aliases", [])]
+                for a in names:
+                    for b in pnames:
+                        if norm_text(a) == norm_text(b):
+                            reason, score = "alias_exact", 1.0
+                        else:
+                            s = similarity(a, b)
+                            if s > score and reason is None:
+                                score = s
+            if reason or score >= 0.6:
+                out.append({"product_id": p["product_id"], "canonical_name": p["canonical_name"],
+                            "function_key": p["function_key"], "score": score,
+                            "match": "exact" if reason else ("possible" if score >= 0.8 else "weak"),
+                            "reason": reason or "name_similarity"})
+        return sorted(out, key=lambda x: -x["score"])
+
+    def add_product(self, run_id, data, force_new=False):
+        self.get_run(run_id)
+        data = dict(data)
+        validate(SCHEMA["product"], data, "product")
+        data["function_key"] = norm_key(data["function_key"])
+        if data["category"] not in cfg("categories"):
+            raise APHError(f"category '{data['category']}' không có trong config/categories.json")
+        cands = self.match(data["canonical_name"], data["function_key"], data.get("aliases", []))
+        exact = [c for c in cands if c["match"] == "exact"]
+        if exact:
+            pid = exact[0]["product_id"]
+            lock = self._lock()
+            try:
+                p = self.product(pid)
+                known = {norm_text(x) for x in [p["canonical_name"], *p.get("aliases", [])]}
+                new_aliases = [a for a in [data["canonical_name"], *data.get("aliases", [])] if norm_text(a) not in known]
+                if new_aliases:
+                    p.setdefault("aliases", []).extend(new_aliases)
+                    p["updated_at"] = now_iso()
+                    self._write_product(p)
+            finally:
+                lock.unlink(missing_ok=True)
+            return {"status": "existing", "product_id": pid, "added_aliases": new_aliases, "matched_by": exact[0]["reason"]}
+        possible = [c for c in cands if c["match"] == "possible"]
+        if possible and not force_new:
+            return {"status": "needs_review", "candidates": possible,
+                    "hint": "Kiểm tra có phải cùng sản phẩm không. Nếu cùng: dùng product_id có sẵn. Nếu khác: chạy lại với --force-new."}
+        lock = self._lock()
+        try:
+            pid = f"prd_{uuid.uuid4().hex[:10]}"
+            rec = {"product_id": pid, **data, "aliases": data.get("aliases", []), "relations": data.get("relations", []),
+                   "first_seen_at": now_iso(), "created_by_run": run_id, "updated_at": now_iso()}
+            self._write_product(rec)
+        finally:
+            lock.unlink(missing_ok=True)
+        if possible:
+            self.append(run_id, "note", {"product_id": pid, "text": f"Tạo mới dù có ứng viên gần giống: {[c['product_id'] for c in possible]}"}, validate_kind=False)
+        return {"status": "created", "product_id": pid}
+
+    def _write_product(self, p):
+        self.products_dir.mkdir(parents=True, exist_ok=True)
+        path = self.products_dir / f"{p['product_id']}.json"
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(p, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.replace(tmp, path)
+
+    def relate(self, pid, rel, other):
+        if rel not in ("complements", "variant_of", "substitute"):
+            raise APHError("rel phải là complements | variant_of | substitute")
+        self.product(other)
+        lock = self._lock()
+        try:
+            p = self.product(pid)
+            entry = {"type": rel, "product_id": other}
+            if entry not in p.setdefault("relations", []):
+                p["relations"].append(entry)
+                p["updated_at"] = now_iso()
+                self._write_product(p)
+        finally:
+            lock.unlink(missing_ok=True)
+        return p["relations"]
+
+    # records
+    def append(self, run_id, kind, data, validate_kind=True):
+        self.get_run(run_id)
+        data = dict(data)
+        if validate_kind:
+            if kind not in SCHEMA["kinds"]:
+                raise APHError(f"kind '{kind}' không hợp lệ, cho phép: {list(SCHEMA['kinds'])}")
+            validate(SCHEMA["kinds"][kind], data, kind)
+        if "product_id" in data:
+            self.product(data["product_id"])
+        self._source_rules(kind, data)
+        rec = {"id": f"{kind[:3]}_{uuid.uuid4().hex[:12]}", "kind": kind, "run_id": run_id,
+               "collected_at": now_iso(), **data}
+        path = self.records_path(run_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        return rec
+
+    @staticmethod
+    def _source_rules(kind, d):
+        if kind == "observation":
+            if not 0 <= d["confidence"] <= 1:
+                raise APHError("confidence phải trong khoảng 0–1")
+            v = d["verification"]
+            if v in ("observed", "reported") and not d.get("source_url"):
+                raise APHError(f"verification={v} bắt buộc có source_url (không được tạo nguồn)")
+            if v in ("estimated", "inferred") and not d.get("note"):
+                raise APHError(f"verification={v} bắt buộc có note giải thích cách ước tính/suy luận")
+            if v == "estimated" and ("range_low" not in d or "range_high" not in d):
+                raise APHError("verification=estimated bắt buộc có range_low và range_high")
+            if v == "observed":
+                ex = d.get("evidence_excerpt")
+                if not ex or len(ex.strip()) < 8:
+                    raise APHError("verification=observed bắt buộc có evidence_excerpt: đoạn trích nguyên văn từ trang chứa giá trị")
+                if not value_in_excerpt(d["value"], ex):
+                    raise APHError(f"Giá trị {d['value']!r} không xuất hiện trong evidence_excerpt. Trích lại đúng đoạn chứa con số, hoặc ghi chú cách quy đổi vào note và dùng verification khác")
+        if kind in ("demand", "trend") and not d["evidence"]:
+            raise APHError(f"{kind} phải có evidence (danh sách id observation/listing)")
+
+    def records(self, product_id=None, kind=None):
+        out = []
+        base = self.root / "records"
+        if not base.exists():
+            return out
+        for path in sorted(base.rglob("*.jsonl")):
+            with open(path, encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    r = json.loads(line)
+                    if product_id and r.get("product_id") != product_id:
+                        continue
+                    if kind and r["kind"] != kind:
+                        continue
+                    out.append(r)
+        return sorted(out, key=lambda r: r["collected_at"])
+
+    def assumptions(self):
+        return load_json(self.root / "assumptions" / "assumptions.json", {"assumptions": []})["assumptions"]
+
+    # status
+    def status(self, pid, decisions=None):
+        """Trạng thái hiện tại = quyết định mới nhất. Truyền sẵn `decisions` để tránh quét lại toàn bộ kho."""
+        st = {"research_status": "new", "business_status": "discovered"}
+        for r in (decisions if decisions is not None else self.records(pid, "decision")):
+            for k in st:
+                if r.get(k):
+                    st[k] = r[k]
+        return st
+
+
+# ---------------------------------------------------------------- confidence
+
+def freshness(rec, metric_kind, cfgc, now=None):
+    now = now or dt.datetime.now(dt.timezone.utc)
+    t = parse_time(rec.get("observed_at")) or parse_time(rec.get("collected_at"))
+    if not t:
+        return 0.5
+    age = max(0.0, (now - t).total_seconds() / 86400)
+    hl = cfgc["half_life_days"].get(metric_kind, cfgc["half_life_days"]["default"])
+    return 0.5 ** (age / hl)
+
+
+def evidence_quality(rec, cfgc, now=None):
+    vf = cfgc["verification_factor"]
+    kind = rec["kind"]
+    if kind == "observation":
+        q = vf[rec["verification"]] * rec["confidence"]
+        return q * freshness(rec, rec["metric"], cfgc, now)
+    if kind in ("listing", "supplier"):
+        return vf[rec["verification"]] * 0.8 * freshness(rec, "supplier" if kind == "supplier" else "price", cfgc, now)
+    if kind == "demand":
+        n = rec.get("independent_sources") or len(rec["evidence"])
+        return min(1.0, 0.4 + 0.2 * n) * freshness(rec, "demand_signal", cfgc, now)
+    if kind == "profit":
+        return rec.get("input_confidence", 0.0) if rec.get("status") == "complete" else 0.0
+    return 0.0
+
+
+def compute_confidence(store: Store, pid, now=None):
+    cfgc, cfgw = cfg("confidence"), cfg("scoring_weights")
+    recs = store.records(pid)
+    by_id = {r["id"]: r for r in recs}
+    result, total_w, acc = {}, 0, 0.0
+    for crit, spec in cfgc["criterion_evidence"].items():
+        items = [r for r in recs if (r["kind"] == "observation" and r["metric"] in spec["metrics"]) or r["kind"] in spec["kinds"]]
+        if crit == "profit":
+            items = [r for r in items if r["kind"] != "profit"] + ([r for r in recs if r["kind"] == "profit"][-1:])
+            # profit criterion needs a complete profit simulation
+            if not any(r["kind"] == "profit" and r.get("status") == "complete" for r in items):
+                items = []
+        qs = sorted((evidence_quality(r, cfgc, now) for r in items), reverse=True)
+        sources = set()
+        for r in items:
+            d = domain(r.get("source_url") or r.get("url"))
+            if d:
+                sources.add(d)
+            if r["kind"] == "demand":
+                for e in r["evidence"]:
+                    er = by_id.get(e)
+                    if er and domain(er.get("source_url") or er.get("url")):
+                        sources.add(domain(er.get("source_url") or er.get("url")))
+            if r["kind"] == "profit":
+                sources.add("profit_simulation")
+        conf = (sum(qs[:3]) / len(qs[:3])) if qs else 0.0
+        conf *= min(1.0, len(sources) / spec["min_sources"]) if spec["min_sources"] else 1.0
+        tps = None
+        if spec.get("min_timepoints"):
+            tps = timepoints(items)
+            conf *= min(1.0, tps / spec["min_timepoints"])
+        w = cfgw["criteria"][crit]["weight"]
+        total_w += w
+        acc += w * conf
+        result[crit] = {"confidence": round(conf, 3), "evidence": len(items), "sources": len(sources), **({"timepoints": tps} if tps is not None else {})}
+    return {"data_confidence": round(100 * acc / total_w, 1), "criteria": result}
+
+
+def timepoints(items):
+    pts = set()
+    for r in items:
+        if r["kind"] != "observation":
+            continue
+        if r.get("series"):
+            for p in r["series"]:
+                if isinstance(p, dict) and p.get("t"):
+                    pts.add(str(p["t"])[:10])
+        else:
+            t = r.get("observed_at") or r.get("collected_at")
+            if t:
+                pts.add(t[:10])
+    return len(pts)
+
+
+# ---------------------------------------------------------------- profit
+
+def _val(field, spec, scenario):
+    if isinstance(spec, (int, float)):
+        return float(spec)
+    if isinstance(spec, dict) and scenario in spec and spec[scenario] is not None:
+        return float(spec[scenario])
+    raise KeyError(field)
+
+
+def profit_sim(inputs: dict, business: dict, known_ids: set[str] | None = None, assumption_ids: set[str] | None = None):
+    """Mô phỏng 3 kịch bản. Thiếu bất kỳ đầu vào nào -> status=incomplete, không xuất lợi nhuận."""
+    missing = [f for f in PROFIT_FIELDS if f not in inputs]
+    unref = []
+    for f in PROFIT_FIELDS:
+        s = inputs.get(f)
+        if s is None:
+            continue
+        ref = s.get("ref") if isinstance(s, dict) else None
+        if not ref:
+            unref.append(f)
+        elif known_ids is not None and ref not in known_ids and not ref.startswith("user:") and not (
+                ref.startswith("assumption:") and assumption_ids is not None and ref.split(":", 1)[1] in assumption_ids):
+            unref.append(f)
+    if missing:
+        return {"status": "incomplete", "missing": missing, "unreferenced": unref,
+                "message": "Chưa đủ chi phí, không kết luận lợi nhuận. Giá nhập thiếu -> ghi 'cần liên hệ báo giá'."}
+    out = {}
+    for sc in SCENARIOS:
+        try:
+            v = {f: _val(f, inputs[f], sc) for f in PROFIT_FIELDS}
+        except KeyError as e:
+            return {"status": "incomplete", "missing": [f"{e.args[0]}.{sc}"], "unreferenced": unref}
+        p = v["sell_price"]
+        landed = v["unit_cost"] + v["inbound_shipping"]
+        fees = p * (v["platform_fee_pct"] + v["payment_fee_pct"]) / 100
+        ads = p * v["ads_pct"] / 100
+        returns = v["return_rate_pct"] / 100 * (landed * v["return_loss_pct"] / 100 + v["seller_shipping"])
+        net = p - landed - fees - ads - v["seller_shipping"] - v["packaging"] - v["ops_per_unit"] - returns - v["other_per_unit"]
+        moq = max(1, int(v["moq"]))
+        test_capital = moq * landed + v["fixed_test_cost"]
+        out[sc] = {
+            "sell_price": round(p), "landed_cost": round(landed), "platform_fees": round(fees), "ads": round(ads),
+            "returns_cost": round(returns), "gross_profit_per_unit": round(p - landed),
+            "net_profit_per_unit": round(net), "net_margin_pct": round(100 * net / p, 1) if p else None,
+            "breakeven_units": math.ceil(v["fixed_test_cost"] / net) if net > 0 else None,
+            "test_capital": round(test_capital),
+            "fits_test_capital": test_capital <= business["test_capital_vnd"],
+        }
+    n_ref = len(PROFIT_FIELDS) - len(unref)
+    return {"status": "complete", "scenarios": out, "unreferenced": unref,
+            "input_confidence": round(n_ref / len(PROFIT_FIELDS), 3),
+            "test_capital_limit": business["test_capital_vnd"]}
+
+
+# ---------------------------------------------------------------- scoring
+
+def score(store: Store, pid, scores: dict, opportunity_types=(), now=None):
+    w = cfg("scoring_weights")
+    crit = w["criteria"]
+    unknown = set(scores) - set(crit)
+    if unknown:
+        raise APHError(f"Tiêu chí không hợp lệ: {unknown}")
+    for t in opportunity_types:
+        if t not in SCHEMA["enums"]["opportunity_type"]:
+            raise APHError(f"opportunity_type không hợp lệ: {t}")
+    conf = compute_confidence(store, pid, now)
+    breakdown, raw, flags = {}, 0.0, []
+    for c, meta in crit.items():
+        s = scores.get(c, {})
+        val = s.get("score") if isinstance(s, dict) else s
+        if val is None:
+            flags.append(f"{c}: chưa chấm (thiếu dữ liệu) -> 0 điểm")
+            val = 0
+        if not 0 <= val <= 10:
+            raise APHError(f"{c}: score phải 0–10")
+        cc = conf["criteria"][c]["confidence"]
+        if val > 0 and cc == 0:
+            flags.append(f"{c}: có điểm nhưng không có bằng chứng trong kho -> 0 điểm")
+            val = 0
+        pts = meta["weight"] * val / 10
+        raw += pts
+        breakdown[c] = {"score_0_10": val, "points": round(pts, 1), "max": meta["weight"], "confidence": cc,
+                        "why": s.get("why") if isinstance(s, dict) else None,
+                        "evidence": s.get("evidence", []) if isinstance(s, dict) else []}
+    weak_critical = [c for c, m in crit.items() if m["critical"] and conf["criteria"][c]["confidence"] < w["critical_confidence_min"]]
+    total = raw
+    cap_reason = None
+    if weak_critical and raw > w["cap_when_critical_unverified"]:
+        total = w["cap_when_critical_unverified"]
+        cap_reason = f"Dữ liệu trọng yếu chưa đủ tin cậy: {weak_critical}"
+    band = next(b["label"] for b in w["bands"] if total >= b["min"])
+    ev = {"product_id": pid, "weights_version": w["version"], "raw_total": round(raw, 1), "total": round(total, 1),
+          "band": band, "data_confidence": conf["data_confidence"], "confidence_detail": conf["criteria"],
+          "breakdown": breakdown, "cap_reason": cap_reason, "weak_critical": weak_critical,
+          "opportunity_types": list(opportunity_types), "flags": flags}
+    return ev
+
+
+def gate(ev: dict):
+    w = cfg("scoring_weights")
+    t, dc = ev["total"], ev["data_confidence"]
+    if t >= w["qualified_min_score"] and dc >= w["qualified_min_data_confidence"] and not ev["cap_reason"]:
+        s, why = "qualified_opportunity", "Điểm và độ tin cậy dữ liệu đạt ngưỡng"
+    elif ev["cap_reason"] or t >= 60:
+        s, why = "research_more", ev["cap_reason"] or "Điểm khá nhưng cần thêm dữ liệu"
+    elif t >= 40:
+        s, why = "watchlist", "Tín hiệu chưa đủ, theo dõi theo thời gian"
+    else:
+        s, why = "rejected", "Điểm thấp. Chỉ chuyển Rejected khi có lý do cụ thể được ghi kèm"
+    return {"suggested_research_status": s, "reason": why, "total": t, "data_confidence": dc}
+
+
+# ---------------------------------------------------------------- index
+
+def reindex(store: Store):
+    fd, tmp = tempfile.mkstemp(suffix=".sqlite")
+    os.close(fd)
+    con = sqlite3.connect(tmp)
+    con.executescript("""
+        CREATE TABLE products(product_id TEXT PRIMARY KEY, canonical_name TEXT, category TEXT, function_key TEXT, json TEXT);
+        CREATE TABLE records(id TEXT PRIMARY KEY, kind TEXT, product_id TEXT, run_id TEXT, collected_at TEXT, metric TEXT, json TEXT);
+        CREATE INDEX rp ON records(product_id, kind, collected_at);
+    """)
+    ps = store.products()
+    con.executemany("INSERT INTO products VALUES(?,?,?,?,?)",
+                    [(p["product_id"], p["canonical_name"], p["category"], p["function_key"], json.dumps(p, ensure_ascii=False)) for p in ps])
+    rs = store.records()
+    con.executemany("INSERT OR REPLACE INTO records VALUES(?,?,?,?,?,?,?)",
+                    [(r["id"], r["kind"], r.get("product_id"), r["run_id"], r["collected_at"], r.get("metric"), json.dumps(r, ensure_ascii=False)) for r in rs])
+    con.commit()
+    con.close()
+    dest = store.root / "index.sqlite"
+    shutil.copyfile(tmp, dest)
+    os.unlink(tmp)
+    return {"products": len(ps), "records": len(rs), "index": str(dest)}
+
+
+def duplicates(store: Store):
+    ps = store.products()
+    out = []
+    for i, a in enumerate(ps):
+        for b in ps[i + 1:]:
+            if a["function_key"] == b["function_key"]:
+                out.append({"a": a["product_id"], "b": b["product_id"], "reason": "same function_key"})
+            else:
+                s = similarity(a["canonical_name"], b["canonical_name"])
+                if s >= 0.8:
+                    out.append({"a": a["product_id"], "b": b["product_id"], "reason": f"name similarity {s}"})
+    return out
+
+
+def show(store: Store, pid):
+    p = store.product(pid)
+    recs = store.records(pid)
+    current, history = {}, {}
+    for r in recs:
+        if r["kind"] == "observation":
+            key = f"{r['metric']}@{r.get('platform') or r.get('market') or '-'}"
+            history.setdefault(key, []).append({"value": r["value"], "at": r.get("observed_at") or r["collected_at"], "id": r["id"]})
+            current[key] = {"value": r["value"], "unit": r.get("unit"), "verification": r["verification"],
+                            "source_url": r.get("source_url"), "at": r.get("observed_at") or r["collected_at"], "id": r["id"]}
+    counts = {}
+    for r in recs:
+        counts[r["kind"]] = counts.get(r["kind"], 0) + 1
+    evals = [r for r in recs if r["kind"] == "evaluation"]
+    profits = [r for r in recs if r["kind"] == "profit"]
+    return {"product": p, "status": store.status(pid), "current": current,
+            "history_points": {k: len(v) for k, v in history.items()}, "record_counts": counts,
+            "latest_evaluation": evals[-1] if evals else None, "latest_profit": profits[-1] if profits else None}
+
+
+def list_products(store: Store):
+    # Quét kho đúng một lần rồi nhóm theo sản phẩm (trước đây quét lại cho từng sản phẩm: O(P x R)).
+    rows, evals, decisions = [], {}, {}
+    for r in store.records():
+        if r["kind"] == "evaluation":
+            evals[r["product_id"]] = r
+        elif r["kind"] == "decision":
+            decisions.setdefault(r["product_id"], []).append(r)
+    for p in store.products():
+        e = evals.get(p["product_id"])
+        rows.append({"product_id": p["product_id"], "name": p["canonical_name"], "category": p["category"],
+                     **store.status(p["product_id"], decisions.get(p["product_id"], [])),
+                     "score": e["total"] if e else None, "data_confidence": e["data_confidence"] if e else None,
+                     "evaluated_at": e["collected_at"] if e else None})
+    return sorted(rows, key=lambda r: -(r["score"] or -1))
+
+
+# ---------------------------------------------------------------- CLI
+
+def read_json_arg(s: str):
+    if s.startswith("@"):
+        return json.loads(Path(s[1:]).read_text(encoding="utf-8"))
+    return json.loads(s)
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(prog="aph", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--data", default=os.environ.get("APH_DATA", DEFAULT_DATA))
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    sub.add_parser("init")
+    s = sub.add_parser("new-run"); s.add_argument("--type", default="manual"); s.add_argument("--request", required=True)
+    s.add_argument("--depth", default="standard"); s.add_argument("--plan", default="[]", help="JSON list các agent")
+    s = sub.add_parser("finish-run"); s.add_argument("--run", required=True); s.add_argument("--summary", required=True)
+    s.add_argument("--agents", default="[]")
+    s = sub.add_parser("match"); s.add_argument("--name", required=True); s.add_argument("--function-key"); s.add_argument("--aliases", default="[]")
+    s = sub.add_parser("add-product"); s.add_argument("--run", required=True); s.add_argument("--json", required=True, help="JSON hoặc @file")
+    s.add_argument("--force-new", action="store_true")
+    s = sub.add_parser("relate"); s.add_argument("--product", required=True); s.add_argument("--rel", required=True); s.add_argument("--other", required=True)
+    s = sub.add_parser("add", help="Thêm bản ghi: observation, listing, supplier, demand, trend, decision, outcome, watch, access")
+    s.add_argument("--run", required=True); s.add_argument("--kind", required=True); s.add_argument("--json", required=True)
+    s = sub.add_parser("log-access"); s.add_argument("--run", required=True); s.add_argument("--url", required=True)
+    s.add_argument("--status", required=True); s.add_argument("--agent"); s.add_argument("--note")
+    s = sub.add_parser("profit"); s.add_argument("--run"); s.add_argument("--product", required=True); s.add_argument("--inputs", required=True)
+    s.add_argument("--dry", action="store_true", help="Chỉ tính, không ghi")
+    s = sub.add_parser("confidence"); s.add_argument("--product", required=True)
+    s = sub.add_parser("score"); s.add_argument("--run"); s.add_argument("--product", required=True); s.add_argument("--scores", required=True)
+    s.add_argument("--types", default="[]"); s.add_argument("--dry", action="store_true")
+    s = sub.add_parser("gate"); s.add_argument("--product", required=True)
+    s = sub.add_parser("set-status"); s.add_argument("--run", required=True); s.add_argument("--product", required=True)
+    s.add_argument("--research"); s.add_argument("--business"); s.add_argument("--reason", required=True); s.add_argument("--by", default="user")
+    s = sub.add_parser("show"); s.add_argument("--product", required=True)
+    sub.add_parser("list")
+    sub.add_parser("duplicates")
+    sub.add_parser("reindex")
+
+    a = ap.parse_args(argv)
+    st = Store(a.data)
+    try:
+        if a.cmd == "init":
+            st.init(); res = {"ok": True, "data": str(st.root)}
+        elif a.cmd == "new-run":
+            res = st.new_run(a.type, a.request, a.depth, json.loads(a.plan))
+        elif a.cmd == "finish-run":
+            res = st.finish_run(a.run, a.summary, json.loads(a.agents))
+        elif a.cmd == "match":
+            res = st.match(a.name, a.function_key, json.loads(a.aliases))
+        elif a.cmd == "add-product":
+            res = st.add_product(a.run, read_json_arg(a.json), a.force_new)
+        elif a.cmd == "relate":
+            res = st.relate(a.product, a.rel, a.other)
+        elif a.cmd == "add":
+            res = st.append(a.run, a.kind, read_json_arg(a.json))
+        elif a.cmd == "log-access":
+            d = {"url": a.url, "status": a.status}
+            if a.agent: d["agent"] = a.agent
+            if a.note: d["note"] = a.note
+            res = st.append(a.run, "access", d)
+        elif a.cmd == "profit":
+            st.product(a.product)
+            known = {r["id"] for r in st.records(a.product)}
+            assumption_ids = {x["id"] for x in st.assumptions()}
+            res = profit_sim(read_json_arg(a.inputs), cfg("business_profile"), known, assumption_ids)
+            if not a.dry:
+                if not a.run:
+                    raise APHError("Cần --run để ghi kết quả (hoặc dùng --dry)")
+                res = st.append(a.run, "profit", {"product_id": a.product, "inputs": read_json_arg(a.inputs), **res}, validate_kind=False)
+        elif a.cmd == "confidence":
+            st.product(a.product); res = compute_confidence(st, a.product)
+        elif a.cmd == "score":
+            st.product(a.product)
+            ev = score(st, a.product, read_json_arg(a.scores), json.loads(a.types))
+            ev["gate"] = gate(ev)
+            if a.dry:
+                res = ev
+            else:
+                if not a.run:
+                    raise APHError("Cần --run để ghi đánh giá (hoặc dùng --dry)")
+                res = st.append(a.run, "evaluation", ev, validate_kind=False)
+        elif a.cmd == "gate":
+            evs = st.records(a.product, "evaluation")
+            if not evs:
+                raise APHError("Chưa có evaluation cho sản phẩm này")
+            res = gate(evs[-1])
+        elif a.cmd == "set-status":
+            d = {"product_id": a.product, "reason": a.reason, "by": a.by}
+            if a.research: d["research_status"] = a.research
+            if a.business: d["business_status"] = a.business
+            if not (a.research or a.business):
+                raise APHError("Cần --research hoặc --business")
+            res = st.append(a.run, "decision", d)
+        elif a.cmd == "show":
+            res = show(st, a.product)
+        elif a.cmd == "list":
+            res = list_products(st)
+        elif a.cmd == "duplicates":
+            res = duplicates(st)
+        elif a.cmd == "reindex":
+            res = reindex(st)
+    except APHError as e:
+        print(json.dumps({"error": str(e)}, ensure_ascii=False))
+        return 2
+    print(json.dumps(res, ensure_ascii=False, indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

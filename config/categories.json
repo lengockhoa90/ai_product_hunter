@@ -1,0 +1,11 @@
+{
+  "electrical_household": {"rank": 1, "vi": "Thiết bị điện dân dụng"},
+  "smart_electrical":     {"rank": 2, "vi": "Thiết bị điện thông minh"},
+  "smart_home":           {"rank": 3, "vi": "Nhà thông minh"},
+  "iot":                  {"rank": 4, "vi": "Thiết bị IoT"},
+  "home_appliance":       {"rank": 5, "vi": "Thiết bị gia dụng"},
+  "tech_accessories":     {"rank": 6, "vi": "Công nghệ và phụ kiện điện tử"},
+  "home_utility":         {"rank": 7, "vi": "Sản phẩm tiện ích gia đình"},
+  "tiktok_consumer":      {"rank": 8, "vi": "Sản phẩm tiêu dùng tiềm năng trên TikTok Shop"},
+  "new_category":         {"rank": 9, "vi": "Ngành hàng mới có cơ hội"}
+}

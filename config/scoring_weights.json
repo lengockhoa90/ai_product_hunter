@@ -1,0 +1,24 @@
+{
+  "version": "v1",
+  "source": "Đặc tả dự án mục IV / Agent 07 (2026-11-24)",
+  "criteria": {
+    "demand":          {"label": "Nhu cầu thị trường",        "weight": 20, "critical": true},
+    "growth":          {"label": "Tốc độ tăng trưởng",        "weight": 15, "critical": false},
+    "competition":     {"label": "Mức độ cạnh tranh",         "weight": 15, "critical": true},
+    "profit":          {"label": "Khả năng sinh lời",         "weight": 20, "critical": true},
+    "sourcing":        {"label": "Khả năng tìm nguồn cung",   "weight": 10, "critical": false},
+    "differentiation": {"label": "Khả năng tạo khác biệt",    "weight": 10, "critical": false},
+    "fit":             {"label": "Mức độ phù hợp kinh doanh", "weight": 10, "critical": false}
+  },
+  "bands": [
+    {"min": 85, "label": "Cơ hội rất tốt"},
+    {"min": 75, "label": "Tiềm năng cao"},
+    {"min": 60, "label": "Cần nghiên cứu thêm"},
+    {"min": 40, "label": "Theo dõi"},
+    {"min": 0,  "label": "Không ưu tiên"}
+  ],
+  "cap_when_critical_unverified": 74,
+  "critical_confidence_min": 0.5,
+  "qualified_min_score": 75,
+  "qualified_min_data_confidence": 60
+}

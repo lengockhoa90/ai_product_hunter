@@ -1,0 +1,5 @@
+{
+  "quick":    {"max_pages": 15, "min_sources_per_claim": 1, "competitors": 3,  "suppliers": 0, "note": "Sàng lọc nhanh, không kết luận lợi nhuận"},
+  "standard": {"max_pages": 40, "min_sources_per_claim": 2, "competitors": 5,  "suppliers": 3},
+  "deep":     {"max_pages": 90, "min_sources_per_claim": 2, "competitors": 10, "suppliers": 5, "note": "Cần người dùng duyệt khi chạy theo lịch"}
+}

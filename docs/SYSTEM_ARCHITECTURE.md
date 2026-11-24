@@ -1,6 +1,7 @@
 # AI PRODUCT HUNTER — SYSTEM ARCHITECTURE
 
-> Phiên bản: 0.1 (Phase 1) · Ngày: 2026-11-24 · Trạng thái: Bản thiết kế, chưa triển khai code
+> Phiên bản: 0.3 (điều chỉnh theo `PHASE_1_AUDIT.md` và quyết định vận hành **bán tự động** của người dùng) · Ngày: 2026-11-24
+> Thay đổi so với 0.1: gộp bản ghi theo run vào `records/` (0.2); mô hình vận hành bán tự động, bỏ dự phòng Cowork desktop, quy tắc một người ghi, phân tầng theo dõi, xử lý lỗi lịch, bắt buộc `evidence_excerpt`, tách việc Demand/Competitor (0.3).
 > Phạm vi: kiến trúc tổng thể, phối hợp Agent, mô hình dữ liệu, lưu trữ, lập lịch, giới hạn kỹ thuật.
 
 ---
@@ -12,10 +13,10 @@
 | Nơi điều phối | Dự án Claude (project chat + các thread Claude Code chạy trên cloud). Người dùng ra lệnh bằng ngôn ngữ tự nhiên ở project chat, mỗi nhiệm vụ nghiên cứu chạy trong một thread. |
 | Hình thức Agent | Mỗi Agent là một **Skill** (quy trình + quy tắc + đầu vào/đầu ra), cùng một phiên Claude thực hiện tuần tự. Không dùng subagent mặc định (tốn token); chỉ dùng khi người dùng yêu cầu nghiên cứu song song. |
 | Bộ điều phối | Skill `aph-orchestrator`: hiểu yêu cầu, chọn Agent và độ sâu, chạy cổng kiểm tra giữa các bước, ghi trạng thái. |
-| Thu thập dữ liệu web | (1) **Trình duyệt tích hợp trên máy người dùng** (Claude Browser, qua Claude desktop app) cho trang cần render/JS; (2) **WebSearch** cho tìm kiếm rộng. Container cloud **không** truy cập trực tiếp được Shopee/TikTok/Google/1688/Alibaba. |
+| Thu thập dữ liệu web | (1) **Trình duyệt Claude trên PC người dùng**, chỉ dùng được trong thread có người dùng và PC đã liên kết; (2) **WebSearch**, dùng được cả trong lịch chạy. Truy cập trực tiếp từ cloud tới Google Trends/Alibaba/1688 đã thử và bị chặn chống bot (429/punish). |
 | Tính toán | Script Python thuần (`tools/aph.py`) cho chấm điểm, lợi nhuận, chống trùng lặp, Data Confidence. Claude không tự cộng trừ bằng tay. |
 | Lưu trữ | Thư mục dự án dùng chung `/mnt/project-files/ai-product-hunter/data/` theo mô hình **append-only** (mỗi lần chạy ghi file riêng) + chỉ mục SQLite dựng lại được. Code/skills/rules nên nằm trong một Git repo (cần người dùng tạo). |
-| Lập lịch | **Scheduled tasks của dự án** (cloud, đã kiểm tra: có công cụ, hiện chưa có task nào). Cowork desktop scheduled tasks là phương án dự phòng chạy trên PC. Chỉ tạo khi người dùng đồng ý. |
+| Vận hành | **Bán tự động** (người dùng chọn 2026-11-24): lịch cloud làm WebSearch, chấm điểm lại, báo cáo và lập *hàng đợi thu thập*; mỗi ngày người dùng mở một thread khoảng 10–20 phút để Claude thu thập qua trình duyệt trên PC (người dùng tự giải CAPTCHA Shopee). Lịch chạy chỉ tạo khi người dùng đồng ý. |
 | Báo cáo | Markdown trong `reports/` (Daily/Weekly/Deep) + một Artifact dashboard cho Opportunity Ranking/Watchlist ở Phase 4. |
 | Không dùng | Claude API, OpenAI API, n8n, dịch vụ AI trung gian, nền tảng automation ngoài, scraping hàng loạt, vượt CAPTCHA/anti-bot. |
 
@@ -117,8 +118,16 @@ Mọi mục dưới đây là kết quả kiểm tra thật trong phiên này, k
 | Chạy quy trình nghiên cứu, ghi dữ liệu, tính toán | Thread Claude Code (cloud) | Đã kiểm chứng có Python/SQLite |
 | Duyệt web có JS/đăng nhập | Claude Browser trên PC (gọi từ cloud qua remote-devices) | Đã kiểm chứng gọi được |
 | Thao tác app desktop | Computer use trên PC | Chưa cần |
-| Chạy theo lịch | Scheduled task của dự án (cloud) | Phương án chính, cần kiểm thử khả năng dùng trình duyệt PC khi chạy theo lịch (Phase 5) |
-| Phương án dự phòng lịch | Cowork desktop scheduled task chạy cùng skill trên PC | Bàn giao: người dùng tạo task trên desktop theo hướng dẫn; kết quả ghi về cùng thư mục dữ liệu |
+| Chạy theo lịch | Scheduled task của dự án (cloud, phiên mới mỗi lần) | **Đã kiểm chứng (2026-11-24):** có repo, WebSearch, ghi thư mục dự án; **không có** trình duyệt hay thư mục PC |
+| Thu thập qua trình duyệt | Thread do người dùng mở, PC đã liên kết | Đã kiểm chứng. Đây là cách duy nhất lấy dữ liệu sàn TMĐT/MXH |
+| ~~Dự phòng Cowork desktop~~ | Bỏ | Tác vụ trên PC không ghi được vào `/mnt/project-files` (ổ rclone trên cloud) |
+
+### 2.3 Chu trình vận hành bán tự động (mỗi ngày)
+
+1. **Lịch cloud (sáng, không cần người):** WebSearch tìm sản phẩm/tin mới ở thị trường nguồn; chấm điểm lại theo độ tươi dữ liệu; ghi Daily Report phần "từ kho"; lập **hàng đợi thu thập** `queue/YYYY-MM-DD.json` (sản phẩm Tier 1 cần làm mới, sản phẩm mới cần kiểm chứng ở VN, nguồn nào, ưu tiên). Kết thúc bằng thông báo cho người dùng.
+2. **Phiên thu thập (người dùng mở thread, PC bật):** người dùng nói "chạy thu thập hôm nay"; orchestrator đọc hàng đợi, thu thập qua trình duyệt theo ngân sách trang; đến Shopee thì dừng, nhờ người dùng giải CAPTCHA trong khung trình duyệt rồi mới đọc; mục nào không làm được ghi `log-access` và giữ lại trong hàng đợi.
+3. **Sau phiên thu thập:** chấm điểm, cổng trạng thái, hoàn thiện Daily Report.
+4. Hàng đợi không được xử lý trong ngày được chuyển sang ngày sau; quá 3 ngày → báo trong Daily Report.
 
 ---
 
@@ -145,6 +154,7 @@ Mọi mục dưới đây là kết quả kiểm tra thật trong phiên này, k
 Mỗi Agent:
 - **Input**: `product_id` (hoặc danh mục/từ khóa với Agent 01), `run_id`, độ sâu.
 - **Output**: các `observation` và bản ghi chuyên biệt ghi vào kho qua `tools/aph.py`, cùng một `agent_summary` (tóm tắt + danh sách khoảng trống dữ liệu).
+- **Phân công thu thập/phân tích**: Competitor Analyst là Agent duy nhất mở trang listing và đánh giá của sàn, ghi `listing` và trích đánh giá; Demand Analyst chỉ phân tích những gì đã có trong kho (cộng nguồn cộng đồng/TikTok mà Competitor không đọc), để không mở cùng một trang hai lần.
 - **Completion criteria**: định nghĩa trong SKILL.md của Agent (ví dụ Competitor: ≥ N gian hàng quan sát được hoặc ghi rõ lý do không đạt).
 - **Error handling**: mọi lỗi truy cập ghi `access_log` (url, thời điểm, loại lỗi: anti_bot / login_required / timeout / empty); không suy diễn thay thế.
 
@@ -236,17 +246,17 @@ Evaluator gắn nhãn cơ hội dựa trên quy tắc có thể kiểm tra, khô
 ```
 /mnt/project-files/ai-product-hunter/data/
   products/<product_id>.json          # hồ sơ gốc (ít thay đổi, ghi có khóa)
-  observations/YYYY/MM/<run_id>.jsonl # append-only, mỗi run một file
-  listings/…, suppliers/…, evaluations/…  (cùng kiểu theo run)
-  decisions/<product_id>.jsonl        # quyết định người dùng
-  outcomes/<product_id>.jsonl         # kết quả kinh doanh thực tế
-  runs/<run_id>.json                  # nhật ký chạy + access_log
+  records/YYYY/MM/<run_id>.jsonl      # append-only, mỗi run một file; mọi loại bản ghi có trường "kind":
+                                      # observation, listing, supplier, demand, trend, profit, evaluation,
+                                      # decision, outcome, watch, access, note
+  runs/<run_id>.json                  # nhật ký chạy
   assumptions/assumptions.json        # giả định chi phí có nguồn & hạn
   index.sqlite                        # dựng lại từ file bằng aph.py reindex
 ```
 
 - Vì sao không ghi thẳng một SQLite trên network mount: nhiều thread có thể chạy cùng lúc, mount "ghi sau thắng", SQLite trên ổ mạng dễ hỏng khóa. File append-only theo run không bao giờ đè nhau; SQLite chỉ là chỉ mục để truy vấn nhanh, mất có thể dựng lại.
-- Sửa hồ sơ Product dùng file khóa `products/.lock` (tạo → ghi → đọc lại sau ~10 giây để xác nhận → xoá).
+- Sửa hồ sơ Product dùng file khóa `products/.lock`. Khóa này **chỉ được bảo đảm trong một container** (đã thử: 20 tiến trình tranh, đúng 1 thắng); giữa hai thread khác nhau trên ổ rclone thì không bảo đảm.
+- **Quy tắc một người ghi:** tại một thời điểm chỉ một run được tạo/sửa `products/` (run ghi `runs/<id>.json` với `finished_at=null` là đang giữ quyền). Run khác thấy có run đang mở dưới 2 giờ thì chỉ ghi bản ghi (`records/`, file riêng nên an toàn), không tạo sản phẩm mới. Sau mỗi run chạy `aph.py duplicates`.
 
 ### 5.2 Mã nguồn và skills
 
@@ -262,15 +272,23 @@ Chỉ lưu sự thật lâu dài về dự án (mục tiêu, quyết định ki�
 
 ## 6. Lập lịch
 
-| Job | Tần suất đề xuất | Việc làm | Phụ thuộc |
+| Job | Chạy ở đâu | Tần suất đề xuất | Việc làm |
 |---|---|---|---|
-| daily-discovery | Mỗi ngày 07:00 (giờ VN) | 01 + 02 trên danh mục ưu tiên, ngân sách nhỏ, ra Daily Report | PC bật nếu cần trình duyệt |
-| watchlist-refresh | Mỗi ngày hoặc theo WatchRule | Cập nhật giá/người bán/xu hướng cho sản phẩm đang theo dõi | như trên |
-| weekly-review | Thứ Hai 08:00 | 07 xếp hạng lại, Weekly Report, đề xuất deep-dive | chỉ cần kho dữ liệu |
-| deep-dive-on-trigger | Khi Evaluator gắn `research_more` có điểm cao | Orchestrator đề xuất; người dùng duyệt trước khi chạy deep | người dùng duyệt |
+| daily-prep | Lịch cloud | Mỗi ngày, sáng sớm giờ VN | WebSearch thị trường nguồn, chấm lại điểm, Daily Report phần kho, lập hàng đợi thu thập |
+| daily-collect | Thread người dùng mở | Mỗi ngày làm việc, 10–20 phút | Thu thập theo hàng đợi qua trình duyệt PC, Shopee có người giải CAPTCHA |
+| weekly-review | Lịch cloud | Thứ Hai | Evaluator xếp hạng lại, Weekly Report, đề xuất deep-dive |
+| deep-dive | Thread người dùng mở | Khi người dùng duyệt | 7 Agent cho 1 sản phẩm |
 
-- Cơ chế: scheduled task của dự án (cloud). **Chỉ tạo sau khi người dùng đồng ý.**
-- Nếu khi chạy theo lịch PC không bật: job vẫn chạy phần WebSearch + kho dữ liệu, ghi `access_failed: device_offline` và báo trong Daily Report.
+**Phân tầng theo dõi** (giới hạn thật là thời gian trình duyệt và token, không phải lưu trữ):
+- Tier 1: tối đa 20 sản phẩm, làm mới mỗi phiên thu thập.
+- Tier 2: tối đa 200 sản phẩm, làm mới hằng tuần (chia đều các ngày).
+- Tier 3: còn lại, chỉ lưu; làm mới khi có tín hiệu mới từ WebSearch hoặc người dùng yêu cầu.
+
+**Xử lý lỗi lịch:**
+- Mỗi run ghi `runs/<id>.json` lúc bắt đầu (`finished_at=null`) và khi kết thúc. Run sau thấy run trước chưa kết thúc quá 2 giờ → đánh dấu `abandoned` và báo.
+- Lịch cloud đọc `list_triggers.last_run.status` của chính nó ở lần chạy sau; thất bại → chạy lại phần còn thiếu một lần; thất bại 2 lần liên tiếp → báo người dùng.
+- Không chạy chồng: thấy một run cùng loại đang mở thì dừng.
+- Lịch chỉ tạo khi người dùng đồng ý; tên, giờ chạy và nội dung được nêu rõ khi xin phép.
 
 ---
 
@@ -289,7 +307,7 @@ Báo cáo được dựng từ dữ liệu trong kho bằng script, không viế
 
 ## 8. Kiểm soát chất lượng và an toàn
 
-1. Không bịa số liệu/nguồn: mọi số trong báo cáo phải trỏ về observation có `source_url` (hoặc `user_input`).
+1. Không bịa số liệu/nguồn: mọi số trong báo cáo phải trỏ về observation có `source_url` (hoặc `user_input`). Observation `observed` bắt buộc có `evidence_excerpt`, tức đoạn văn bản trích nguyên văn từ trang chứa con số; công cụ kiểm tra con số có xuất hiện trong đoạn trích.
 2. Dữ liệu cũ: báo cáo hiển thị ngày thu thập; quá hạn → gắn nhãn "dữ liệu cũ".
 3. Không kết luận nhu cầu từ lượt xem; không kết luận xu hướng từ < 2 mốc thời gian hoặc 1 nguồn.
 4. Không kết luận lợi nhuận khi chi phí chưa đủ (`incomplete`).
@@ -304,17 +322,18 @@ Báo cáo được dựng từ dữ liệu trong kho bằng script, không viế
 
 | # | Giới hạn | Ảnh hưởng | Cách xử lý |
 |---|---|---|---|
-| L1 | Container cloud bị chặn mạng tới Shopee/TikTok/Google/1688/Alibaba | Không thu thập từ cloud | Dùng trình duyệt trên PC; WebSearch |
+| L1 | Mạng cloud là cấu hình môi trường (`limited`). Đã cho phép trends.google.com, www.alibaba.com, s.1688.com và thử: Trends 429, Alibaba/1688 trả trang chống bot | Không thu thập từ cloud | Dùng trình duyệt trên PC trong thread; WebSearch |
 | L2 | Shopee bật trang xác minh chống bot | Không có dữ liệu Shopee tự động | Người dùng mở trang/hoàn tất xác minh thủ công khi cần; dữ liệu Seller Center của người dùng; nguồn gián tiếp. Ghi `anti_bot` |
 | L3 | 1688/Taobao có thể cần đăng nhập, mã GBK | Supplier Hunter chưa chắc chạy được | Kiểm thử Phase 2; người dùng đăng nhập trong trình duyệt tích hợp nếu muốn; Alibaba.com làm nguồn thay thế |
-| L4 | Trình duyệt chỉ chạy khi PC bật + app mở | Lịch đêm/ngày nghỉ có thể hụt dữ liệu | Lịch vào giờ PC thường bật; ghi `device_offline` |
+| L4 | Trình duyệt chỉ chạy khi PC bật + app mở, và **chỉ trong thread có liên kết thiết bị** (phiên chạy theo lịch không có) | Không thu thập sàn theo lịch | Vận hành bán tự động (mục 2.3) |
 | L5 | Không có lượt bán/GMV chính xác | Chỉ số bán hàng thô | Dùng nhãn hiển thị công khai, độ tin cậy thấp, nhiều mốc thời gian |
 | L6 | WebSearch thiên về chỉ mục quốc tế | Yếu với thị trường VN | Dùng cho thị trường nguồn và nhà sản xuất; VN qua trình duyệt |
 | L7 | Skill chỉ lưu được khi người dùng duyệt | Không tự cài skill | Đề xuất qua thẻ duyệt ở Phase 2 |
 | L8 | Mount dùng chung "ghi sau thắng" | Rủi ro ghi đè | Append-only + khóa cho hồ sơ |
 | L9 | Phiên cloud tạm thời | Mất file ngoài thư mục dự án | Mọi thứ ghi vào `/mnt/project-files` hoặc Git |
 | L10 | Chi phí token/thời gian mỗi run | Không thể nghiên cứu sâu mọi sản phẩm hằng ngày | Ngân sách theo độ sâu; deep-dive cần duyệt |
-| L11 | Cowork desktop scheduled tasks không điều khiển được từ cloud | Không tự động hóa chéo | Dùng scheduled task cloud; desktop là dự phòng do người dùng tạo |
+| L11 | Cowork desktop scheduled tasks không điều khiển được từ cloud và không ghi được vào thư mục dự án | Không dùng làm dự phòng | Bỏ khỏi kiến trúc |
+| L12 | Không làm mới được hàng nghìn sản phẩm định kỳ (mỗi trang 5–15 giây + token) | Chỉ theo dõi tích cực vài chục sản phẩm/ngày | Phân tầng Tier 1/2/3 |
 
 ---
 
@@ -326,9 +345,9 @@ Báo cáo được dựng từ dữ liệu trong kho bằng script, không viế
 | Lưu trữ, chống trùng lặp, lịch sử, theo dõi dài hạn | Cao | Python/SQLite + thư mục dự án đã kiểm chứng |
 | Chấm điểm, Data Confidence, mô phỏng lợi nhuận 3 kịch bản | Cao | Script tính toán xác định |
 | Báo cáo có nguồn dẫn | Cao | Dựng từ kho |
-| Chạy theo lịch | Trung bình–Cao | Có công cụ; cần kiểm thử với trình duyệt PC |
+| Chạy theo lịch | Trung bình | Đã kiểm chứng cho WebSearch/kho/báo cáo; **không** cho thu thập qua trình duyệt |
 | Tìm sản phẩm ở thị trường quốc tế/nhà sản xuất | Trung bình–Cao | WebSearch + trình duyệt |
-| Xu hướng (Google Trends, TikTok) | Trung bình | Trang tải được; trích xuất cần kiểm thử |
-| Nhà cung cấp 1688/Alibaba | Chưa rõ | Cần kiểm thử, có thể cần đăng nhập |
-| Đối thủ & đánh giá trên Shopee | Thấp | Anti-bot; phụ thuộc thao tác người dùng |
+| Xu hướng (Google Trends, TikTok) | Trung bình–Cao | Đọc được bảng số Trends và TikTok CSI qua trình duyệt (trong thread) |
+| Nhà cung cấp 1688/Alibaba | Trung bình | Đọc được qua trình duyệt, không cần đăng nhập (1688 cần mã GBK) |
+| Đối thủ & đánh giá trên Shopee | Trung bình–Thấp | CAPTCHA kể cả khi đã đăng nhập; chỉ đọc được sau khi người dùng tự giải, trong phiên thu thập |
 | Lượt bán chính xác | Không | Không có nguồn hợp lệ |
