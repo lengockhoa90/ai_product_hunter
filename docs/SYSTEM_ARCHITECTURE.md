@@ -319,6 +319,14 @@ Lý do: báo cáo v2 dùng tên nhóm sản phẩm thay cho model, coi một l�
 - **Chống trùng**: `evaluate` không ghi khi đầu vào, trạng thái, điểm và Gate không đổi (`--force` để ghi); `variant_link`/`variant_profile` trùng nội dung trả bản ghi cũ.
 - **`readiness`**: liệt kê đầu vào đủ/thiếu cho từng model và Agent phụ trách; Orchestrator dùng nó ở luồng 10 bước (skill `aph-orchestrator` mục 4).
 
+### 4.8 Agent 03 Demand Analyst (0.6)
+
+Lệnh `aph.py demand` (config `config/demand_analysis.json`), skill `dtm-demand-analyst`. Chỉ đọc kho; dùng cùng bộ lọc model và quy tắc Presence/Velocity của Agent 07 để hai Agent không mâu thuẫn.
+- Tách 4 loại nhu cầu: tìm kiếm (`search_interest`, `csi_popularity`, `search_keyword`), tương tác (`content_signal`…, chỉ là chú ý), bán hàng (Presence/Velocity), đánh giá (`review_count` + `demand` theo chủ đề).
+- `demand` có thêm trường tùy chọn `aspect` (enum `demand_aspect`), `mentions`, `sample_size`, `platform`, `observed_at`, `source_url`, `evidence_excerpt`. Bản ghi cũ không có `aspect` được suy từ `type`.
+- Kind mới `demand_analysis`: kết quả 9 câu hỏi + `input_snapshot`, append-only, chạy lại không đổi → không ghi. Không là đầu vào chấm điểm (nằm trong `SKIP_KINDS`).
+- Quy tắc: mẫu nhỏ được gắn nhãn; mùa vụ cần ≥ 350 ngày dữ liệu, 1 năm chỉ là chỉ báo.
+
 ### 4.5 Lợi nhuận
 
 `Lợi nhuận = Doanh thu − Giá vốn (giá nhập + vận chuyển quốc tế + thuế/phí nhập) − Phí nền tảng − Quảng cáo − Vận chuyển người bán chịu − Đóng gói − Vận hành − Bảo hành/hoàn hàng dự kiến − Khác`.

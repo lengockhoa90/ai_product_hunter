@@ -149,6 +149,17 @@
       "wifi_zigbee",
       "mixed",
       "unknown"
+    ],
+    "demand_aspect": [
+      "pain_point",
+      "buying_reason",
+      "non_buy_reason",
+      "return_reason",
+      "feature",
+      "use_case",
+      "question",
+      "price",
+      "alternative"
     ]
   },
   "kinds": {
@@ -263,10 +274,18 @@
         "price_low_vnd": "num",
         "price_high_vnd": "num",
         "alternatives": "list",
-        "variant_key": "str"
+        "variant_key": "str",
+        "aspect": "str",
+        "mentions": "int",
+        "sample_size": "int",
+        "platform": "str",
+        "observed_at": "str",
+        "source_url": "str",
+        "evidence_excerpt": "str"
       },
       "enum_fields": {
-        "type": "demand_type"
+        "type": "demand_type",
+        "aspect": "demand_aspect"
       }
     },
     "trend": {
@@ -470,6 +489,39 @@
       },
       "enum_fields": {
         "protocol": "protocol"
+      }
+    },
+    "demand_analysis": {
+      "required": {
+        "product_id": "str",
+        "config_version": "str"
+      },
+      "optional": {
+        "variant_key": "any",
+        "model": "any",
+        "product_name": "any",
+        "agent": "any",
+        "demand_score": "any",
+        "presence": "any",
+        "velocity": "any",
+        "search_interest": "any",
+        "engagement": "any",
+        "review_demand": "any",
+        "trend_direction": "any",
+        "keywords": "any",
+        "features": "any",
+        "pain_points": "any",
+        "buying_motivations": "any",
+        "non_buy_reasons": "any",
+        "price_sensitivity": "any",
+        "seasonality": "any",
+        "platform_differences": "any",
+        "evidence": "any",
+        "confidence": "any",
+        "missing_data": "any",
+        "recommendations": "any",
+        "questions": "any",
+        "input_snapshot": "any"
       }
     }
   },
