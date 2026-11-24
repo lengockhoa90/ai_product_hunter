@@ -37,6 +37,8 @@
 | vienthonghoangthach.com | trang "bảng giá sỉ" qua Google | ✅ 2026-11-24 | Giá sỉ/giá thợ khóa TTLock–Tuya (gồm VAT), địa chỉ; không thấy MST | 05 |
 | finance.vietstock.vn (công ty niêm yết) | `finance.vietstock.vn/<MÃ>-<tên>.htm`, tab "Đăng ký kinh doanh" | ✅ 2026-11-24 | Tên pháp nhân, địa chỉ đăng ký, website (không hiện MST) | 05 (đối chiếu pháp nhân) |
 | trangvangvietnam.com (danh bạ) | `trangvangvietnam.com/listings/<id>/<tên>.html` | ✅ 2026-11-24 | Tên DN, MST, năm thành lập, địa chỉ (có thể do DN tự khai) | 05 (đối chiếu pháp nhân) |
+| tiki.vn | `tiki.vn/api/v2/products?limit=40&q=<từ khóa>` gọi trong tab tiki.vn | ✅ 2026-11-24 | Tên, giá, đã bán, thương hiệu. Ít shop bán model phổ thông | 06 (giá thị trường, dự phòng) |
+| Lazada (giá theo model) | `catalog/?ajax=true&q=…` | ⚠️ 2026-11-24 15:03: reCAPTCHA sau vài lượt; trang tag trả 'không có kết quả'. Người dùng giải xong thì đọc lại được | Giá đang bán, đã bán, shop | 06, 01, 04 |
 | masothue.com | `/Search/?q=<MST>` hoặc ô tìm kiếm | ❌ 2026-11-24: trình duyệt tự động bị chuyển sang DN không liên quan; không dùng | – | – |
 | thuvienphapluat.vn/ma-so-thue | trang MST | ❌ 2026-11-24: Cloudflare 403; không vượt | – | – |
 | Taobao, Tiki, TikTok Shop (web), Amazon | — | ⬜ Chưa kiểm thử | — | — |
