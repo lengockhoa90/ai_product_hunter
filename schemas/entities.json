@@ -139,6 +139,16 @@
       "CONDITIONAL_GO",
       "NEED_MORE_DATA",
       "NO_GO"
+    ],
+    "protocol": [
+      "wifi",
+      "ble",
+      "ble_mesh",
+      "zigbee",
+      "rf",
+      "wifi_zigbee",
+      "mixed",
+      "unknown"
     ]
   },
   "kinds": {
@@ -195,7 +205,8 @@
         "strengths": "list",
         "weaknesses": "list",
         "note": "str",
-        "variant_key": "str"
+        "variant_key": "str",
+        "observed_at": "str"
       },
       "enum_fields": {
         "verification": "verification"
@@ -267,7 +278,8 @@
       },
       "optional": {
         "timepoints": "int",
-        "note": "str"
+        "note": "str",
+        "variant_key": "str"
       },
       "enum_fields": {
         "stage": "trend_stage"
@@ -433,7 +445,31 @@
         "weak_critical": "any",
         "opportunity_types": "any",
         "flags": "any",
-        "gate": "any"
+        "gate": "any",
+        "model": "any"
+      }
+    },
+    "variant_profile": {
+      "required": {
+        "product_id": "str",
+        "variant_key": "str",
+        "brand": "str",
+        "model_name": "str",
+        "protocol": "str",
+        "evidence": "list",
+        "evidence_excerpt": "str"
+      },
+      "optional": {
+        "app_ecosystem": "str",
+        "versions": "list",
+        "is_group": "bool",
+        "group_note": "str",
+        "product_type": "str",
+        "note": "str",
+        "by": "str"
+      },
+      "enum_fields": {
+        "protocol": "protocol"
       }
     }
   },
