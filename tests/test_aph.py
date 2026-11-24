@@ -47,9 +47,9 @@ class Base(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def product(self, name="Cảm biến rò rỉ nước Zigbee", fk="water-leak-sensor|zigbee", **kw):
+    def product(self, name="Cảm biến rò rỉ nước Zigbee", fk="water-leak-sensor|zigbee", force_new=False, **kw):
         d = {"canonical_name": name, "category": "smart_home", "function_key": fk, **kw}
-        return self.st.add_product(self.run, d)
+        return self.st.add_product(self.run, d, force_new)
 
     def obs(self, pid, metric="price", url="https://a.example/x", verification="observed", conf=0.9, **kw):
         d = {"product_id": pid, "agent": "competitor_analyst", "metric": metric, "value": 1,
@@ -701,3 +701,272 @@ class TestProfitAnalyst(Base):
                          "incomplete")
         inp = full_inputs(ads_pct={"conservative": 70, "base": 70, "optimistic": 70, "ref": "user:t"})
         self.assertIsNone(aph.max_unit_cost(inp, (10,))["scenarios"]["base"]["max_unit_cost_at_10pct"])
+
+
+class TestOpportunityEvaluator(Base):
+    """Agent 07: chấm điểm v2 theo model, Risk Gates, so sánh giữa các lần đánh giá. Dữ liệu chỉ để kiểm tra logic."""
+    V = "hang-a-wifi"
+    TODAY = dt.date.today()
+
+    def day(self, n):
+        return (self.TODAY - dt.timedelta(days=n)).isoformat()
+
+    def listing(self, pid, price, shop, platform="lazada", variant=None, sold=None, **kw):
+        d = {"product_id": pid, "platform": platform, "url": f"https://{platform}.example/{shop}", "verification": "observed",
+             "price_vnd": price, "shop_name": shop, "evidence_excerpt": f"Cảm biến Hãng A WiFi ₫{price:,}", "variant_key": variant or self.V, **kw}
+        if sold is not None:
+            d["sold_label"] = f"{sold} Đã bán"
+        return self.st.append(self.run, "listing", d)
+
+    def sold_obs(self, pid, value, days_ago, platform="shopee"):
+        return self.obs(pid, metric="sold_label", url=f"https://{platform}.example/sp", value=value, platform=platform,
+                        observed_at=self.day(days_ago), variant_key=self.V, evidence_excerpt=f"{value} đã bán")
+
+    def trend(self, pid, stage="growing"):
+        a = self.obs(pid, metric="search_interest", url="https://trends.google.com/a", value=30, evidence_excerpt="tuần cuối 30",
+                     observed_at=self.day(0))
+        b = self.obs(pid, metric="csi_popularity", url="https://www.tiktok.com/csi", value=30, evidence_excerpt="độ phổ biến 30",
+                     observed_at=self.day(0))
+        return self.st.append(self.run, "trend", {"product_id": pid, "stage": stage, "basis": "2 nguồn (test)", "evidence": [a["id"], b["id"]]})
+
+    def supplier(self, pid, basis="dealer_quote", price=150000, variant="__V__", **kw):
+        d = {"product_id": pid, "name": "Hãng A", "platform": "user", "url": "https://hang-a.example/sp", "quote_status": "quoted",
+             "verification": "user_input", "market": "VN", "price_basis": basis, "price_tiers": [{"min_qty": 10, "price": price}], **kw}
+        if variant:
+            d["variant_key"] = self.V if variant == "__V__" else variant
+        return self.st.append(self.run, "supplier", d)
+
+    def review(self, sup_ids, **over):
+        ver = {"status": "verified", "source_url": "https://trangvang.example/a", "evidence_excerpt": "Công ty CP Hãng A, MST 0101234567"}
+        c = {k: {"status": "stated", "source_url": "https://hang-a.example/cs", "evidence_excerpt": "Bảo hành 12 tháng, xuất VAT"}
+             for k in aph.VENDOR_CRITERIA}
+        c["legal_entity"] = dict(ver); c["address"] = dict(ver)
+        c["invoice"] = {"status": "user_input", "value": "Có xuất VAT"}
+        c["moq_payment"] = {"status": "user_input", "value": "MOQ 10, chuyển khoản"}
+        c.update(over)
+        return self.st.append(self.run, "vendor_review", {"vendor_key": "hang-a.example", "vendor_name": "Hãng A", "market": "VN",
+                                                          "supplier_refs": sup_ids, "criteria": c})
+
+    def profit(self, pid, sup_id):
+        inp = full_inputs(unit_cost={"conservative": 150000, "base": 140000, "optimistic": 130000, "ref": sup_id})
+        res = aph.profit_sim(inp, BUSINESS)
+        return self.st.append(self.run, "profit", {"product_id": pid, "inputs": inp, "platform": "shopee", "variant": self.V, **res},
+                              validate_kind=False)
+
+    def max_cost(self, pid, retail_id=None, ceiling=180000, d10=40.0):
+        rec = {"product_id": pid, "status": "partial", "platform": "shopee", "variant": self.V, "targets_pct": [10, 20],
+               "scenarios": {sc: {"sell_price": 290000, "max_unit_cost_at_10pct": ceiling, "max_unit_cost_at_20pct": ceiling - 29000}
+                             for sc in aph.SCENARIOS}, "excluded_costs": ["ads_pct", "packaging"]}
+        if retail_id:
+            rec["discount_needed"] = {"retail_price": 300000, "ref": retail_id,
+                                      **{sc: {"min_discount_pct_at_10pct": d10, "min_discount_pct_at_20pct": d10 + 9} for sc in aph.SCENARIOS}}
+        return self.st.append(self.run, "max_cost", rec, validate_kind=False)
+
+    def strong(self, *, real_cost=True, trend="growing", demand="strong", tag="1"):
+        pid = self.product(name=f"Cảm biến Hãng A {tag}", fk=f"door-sensor|wifi-{tag}", force_new=True)["product_id"]
+        for price, shop, plat, sold in [(270000, "Shop 1", "lazada", 120), (290000, "Shop 2", "lazada", 90), (300000, "Shop 3", "shopee", 110)]:
+            self.listing(pid, price, shop, plat, sold=sold if demand == "strong" else 4,
+                         weaknesses=["pin yếu"] if shop == "Shop 1" else [])
+        if demand == "strong":
+            self.sold_obs(pid, 150, 14, "shopee")
+        else:
+            self.sold_obs(pid, 1, 14, "shopee")
+        if trend:
+            self.trend(pid, trend)
+        if real_cost:
+            sup = self.supplier(pid)
+            self.review([sup["id"]])
+            self.profit(pid, sup["id"])
+        else:
+            retail = self.supplier(pid, basis="retail_listed", price=300000, quote_status="need_quote")
+            self.review([retail["id"]])
+            self.max_cost(pid, retail["id"])
+        return pid
+
+    def ev(self, pid, variant=None, **kw):
+        return aph.evaluate(self.st, pid, variant or self.V, **kw)
+
+    # Test 1
+    def test_go_when_all_gates_pass(self):
+        e = self.ev(self.strong())
+        self.assertEqual(e["status"], "GO", e["conditions"])
+        self.assertTrue(all(g["status"] == "pass" for g in e["gates"].values()))
+        self.assertGreaterEqual(e["total"], 75); self.assertEqual(e["weight_coverage"], 100)
+        self.assertEqual(e["suggested_research_status"], "qualified_opportunity")
+
+    # Test 2
+    def test_no_real_cost_never_claims_profit(self):
+        e = self.ev(self.strong(real_cost=False))
+        f = e["groups"]["financial"]
+        self.assertEqual(f["basis"], "estimated"); self.assertLessEqual(f["score"], 50)
+        self.assertIn("Chưa có giá nhập thực tế", f["reason"])
+        self.assertEqual(e["gates"]["financial"]["status"], "insufficient")
+        self.assertEqual(e["status"], "CONDITIONAL_GO")
+        # Giá lẻ không phải giá nhập: điểm NCC không có thưởng giá
+        self.assertIn("giá bán lẻ không phải giá vốn", e["groups"]["supplier"]["reason"])
+
+    # Test 3 + yêu cầu C
+    def test_trend_unknown_is_null_and_not_required(self):
+        e = self.ev(self.strong(trend="unknown"))
+        t = e["groups"]["trend"]
+        self.assertIsNone(t["score"]); self.assertEqual(t["status"], "no_data"); self.assertEqual(t["stage"], "unknown")
+        self.assertEqual(e["weight_coverage"], 85)
+        self.assertEqual(e["status"], "GO")  # không bắt buộc tăng trưởng
+        self.assertNotIn("trend", e["gates"])
+        s = self.ev(self.strong(trend="stable", tag="2"))
+        self.assertEqual(s["groups"]["trend"]["score"], 65); self.assertEqual(s["status"], "GO")
+
+    # Test 4
+    def test_unverified_vendor_shows_supply_risk(self):
+        pid = self.strong()
+        sup = self.st.records(pid, "supplier")[0]
+        self.review([sup["id"]], legal_entity={"status": "stated", "source_url": "https://hang-a.example/lh", "evidence_excerpt": "Hãng A, Hà Nội"},
+                    warranty={"status": "missing", "note": "không thấy chính sách bảo hành"})
+        e = self.ev(pid)
+        self.assertEqual(e["gates"]["supplier"]["status"], "insufficient")
+        self.assertIn("pháp nhân chưa đối chiếu", e["gates"]["supplier"]["reason"])
+        self.assertIn("bảo hành", e["gates"]["supplier"]["reason"])
+        self.assertTrue(any("Rủi ro nguồn cung" in r for r in e["risks"]))
+        self.assertNotEqual(e["status"], "GO")
+
+    # Test 5
+    def test_weak_demand_blocks_go(self):
+        e = self.ev(self.strong(demand="weak"))
+        self.assertEqual(e["gates"]["demand"]["status"], "fail")
+        self.assertEqual(e["status"], "NO_GO")
+        self.assertGreater(e["groups"]["financial"]["score"], 50)
+
+    # Test 6
+    def test_sparse_data_need_more_data_without_inventing(self):
+        pid = self.product()["product_id"]
+        self.obs(pid, metric="search_interest", url="https://trends.google.com/x", value=20, evidence_excerpt="giá trị 20")
+        e = self.ev(pid, "zigbee-x")
+        self.assertEqual(e["status"], "NEED_MORE_DATA")
+        for g in ("trend", "competition", "supplier", "financial"):
+            self.assertIsNone(e["groups"][g]["score"], g)
+        self.assertLessEqual(e["groups"]["demand"]["score"], 40)  # chỉ tín hiệu chú ý
+        self.assertEqual(e["weight_coverage"], 25)
+        self.assertTrue(e["next_actions"])
+        self.assertEqual(aph.evaluate(self.st, pid, None)["gates"]["identity"]["status"], "insufficient")
+
+    # Test 7
+    def test_two_evaluations_compare_and_history_kept(self):
+        pid = self.strong(real_cost=False)
+        first = self.st.append(self.run, "evaluation", self.ev(pid))
+        sup = self.supplier(pid)
+        self.review([sup["id"]])
+        self.profit(pid, sup["id"])
+        second = self.st.append(self.run, "evaluation", self.ev(pid))
+        d = aph.eval_diff(self.st, pid, self.V)
+        self.assertEqual((d["from"]["id"], d["to"]["id"]), (first["id"], second["id"]))
+        self.assertEqual(d["status"], {"from": "CONDITIONAL_GO", "to": "GO"})
+        self.assertIn("financial", d["groups_changed"])
+        self.assertIn("profit", {x["kind"] for x in d["inputs_added"]})
+        self.assertEqual(d["gates_changed"]["financial"]["to"], "pass")
+        stored = [r for r in self.st.records(pid, "evaluation")]
+        self.assertEqual(stored[0], first)  # bản cũ không bị sửa
+
+    # Yêu cầu A
+    def test_coverage_below_80_blocks_go(self):
+        pid = self.strong(trend="unknown")
+        orig = aph.cfg
+        def patched(name):
+            c = orig(name)
+            if name == "scoring_weights_v2":
+                c = json.loads(json.dumps(c)); c["groups"]["trend"]["weight"] = 30; c["groups"]["demand"]["weight"] = 10
+            return c
+        aph.cfg = patched
+        try:
+            e = self.ev(pid)
+        finally:
+            aph.cfg = orig
+        self.assertEqual(e["weight_coverage"], 70)
+        self.assertGreaterEqual(e["total"], 75)
+        self.assertEqual(e["status"], "CONDITIONAL_GO")
+        self.assertTrue(any("weight_coverage" in c for c in e["conditions"]))
+
+    # Yêu cầu B
+    def test_more_competitors_is_not_better(self):
+        few = self.product(name="SP ít đối thủ", fk="a|x")["product_id"]
+        many = self.product(name="Hàng khác hẳn", fk="b|y", force_new=True)["product_id"]
+        for i in range(3):
+            self.listing(few, 280000 + i * 10000, f"Shop {i}")
+        for i in range(20):
+            self.listing(many, 280000 + (i % 3) * 10000, f"Shop {i}")
+        a, b = self.ev(few)["groups"]["competition"], self.ev(many)["groups"]["competition"]
+        self.assertGreater(a["score"], b["score"])
+        self.assertLessEqual(a["score"], 70)  # chưa có bằng chứng khác biệt
+        self.assertIn("chưa có bằng chứng khả năng khác biệt", a["reason"])
+        self.assertIn(a["band"], [lbl for _, lbl in aph.cfg("scoring_weights_v2")["competition"]["bands"]])
+
+    def test_undercut_and_incumbent_lower_competition(self):
+        pid = self.product()["product_id"]
+        for price, shop in [(150000, "Nhà Phân Phối A"), (300000, "Official Store"), (310000, "Shop X"), (305000, "Shop Y")]:
+            self.listing(pid, price, shop)
+        c = self.ev(pid)["groups"]["competition"]
+        self.assertEqual(c["components"]["price"], 35)
+        self.assertEqual(c["components"]["incumbent"], 35)
+
+    # Yêu cầu D
+    def test_identity_excludes_other_models_and_unassigned(self):
+        pid = self.strong()
+        for p in (90000, 95000, 99000):
+            self.listing(pid, p, "Shop Z", variant="hang-b-zigbee", sold=999)
+        un = self.supplier(pid, variant=None, name="NCC chưa rõ model", price=50000)
+        e = self.ev(pid)
+        self.assertEqual(e["groups"]["competition"]["price"]["min"], 270000)
+        self.assertEqual(e["groups"]["demand"]["sold_total"], 470)
+        self.assertGreaterEqual(e["identity"]["other_model"], 3)
+        self.assertIn(un["id"], e["identity"]["unassigned_ids"])
+        self.assertEqual(e["gates"]["identity"]["status"], "pass")  # đã có NCC đúng model
+        z = self.ev(pid, "hang-b-zigbee")
+        self.assertEqual(z["gates"]["identity"]["status"], "insufficient")
+        self.assertIn("NCC chưa xác định", z["gates"]["identity"]["reason"])
+        self.assertNotEqual(z["status"], "GO")
+
+    def test_identity_wide_price_spread(self):
+        pid = self.product()["product_id"]
+        for p in (700000, 900000, 1400000, 2500000):
+            self.listing(pid, p, f"S{p}")
+        g = self.ev(pid)["gates"]["identity"]
+        self.assertEqual(g["status"], "insufficient"); self.assertIn("gộp nhiều mẫu", g["reason"])
+
+    def test_variant_link_needs_verbatim_excerpt(self):
+        pid = self.product()["product_id"]
+        sup = self.supplier(pid, variant=None, name="Cảm biến cửa Wifi Hãng A Thế Hệ Mới")
+        base = {"product_id": pid, "variant_key": self.V, "target": sup["id"], "reason": "Tên sản phẩm ghi WiFi Hãng A"}
+        with self.assertRaises(aph.APHError):
+            self.st.append(self.run, "variant_link", {**base, "evidence_excerpt": "Zigbee Hãng A"})
+        lis = self.listing(pid, 300000, "Shop 1", variant="hang-b")
+        with self.assertRaises(aph.APHError):  # bản ghi đã có model khác
+            self.st.append(self.run, "variant_link", {**base, "target": lis["id"], "evidence_excerpt": "Hãng A WiFi"})
+        self.st.append(self.run, "variant_link", {**base, "evidence_excerpt": "Wifi Hãng A"})
+        self.assertEqual(aph.record_variant(sup, aph.variant_links(self.st.records())), self.V)
+        b = aph.build_profit_inputs(self.st, pid, "shopee", self.V)
+        self.assertEqual(b["inputs"]["unit_cost"]["ref"], sup["id"])
+        self.assertIn("unit_cost", aph.build_profit_inputs(self.st, pid, "shopee", "hang-b")["missing"])
+
+    def test_ai_judgment_clamped_and_needs_evidence(self):
+        pid = self.strong()
+        base = self.ev(pid)["groups"]["competition"]["score"]
+        lid = self.st.records(pid, "listing")[0]["id"]
+        e = self.ev(pid, judgments={"competition": {"score": 100, "reason": "Đối thủ chủ yếu ảnh kém", "evidence": [lid]}})
+        c = e["groups"]["competition"]
+        self.assertEqual(c["basis"], "ai_judgment"); self.assertEqual(c["tool_score"], base)
+        self.assertLessEqual(c["score"], min(base + 10, c.get("cap") or 100))
+        with self.assertRaises(aph.APHError):
+            self.ev(pid, judgments={"financial": {"score": 90, "reason": "lãi tốt lắm", "evidence": [lid]}})
+        with self.assertRaises(aph.APHError):
+            self.ev(pid, judgments={"demand": {"score": 90, "reason": "nhu cầu cao", "evidence": ["obs_khongco"]}})
+
+    def test_cli_evaluate_writes_schema_valid_record_and_report(self):
+        pid = self.strong()
+        out = pathlib.Path(self.tmp.name) / "r.md"
+        import contextlib, io
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(aph.main(["--data", self.tmp.name, "evaluate", "--run", self.run, "--product", pid]), 0)
+            self.assertEqual(aph.main(["--data", self.tmp.name, "eval-report", "--out", str(out)]), 0)
+        txt = out.read_text(encoding="utf-8")
+        for k in ["Bảng xếp hạng", "16. **Hành động tiếp theo:**", "10. **Risk Gates:**", "GO"]:
+            self.assertIn(k, txt)
+        self.assertEqual(aph.ranking(self.st)[0]["status"], "GO")

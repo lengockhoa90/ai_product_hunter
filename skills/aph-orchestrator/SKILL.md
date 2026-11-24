@@ -37,7 +37,7 @@ Trước khi nghiên cứu một sản phẩm: `aph.py match --name "<tên>" --f
 - Không có → `add-product --run <run_id> --json '{...}'` (category theo `config/categories.json`).
 
 ## 3. Chạy từng Agent
-Mỗi Agent có skill riêng `aph-<agent>` (Phase 3). Đã có: `skills/dtm-market-hunter/SKILL.md` (Agent 01), `skills/dtm-trend-hunter/SKILL.md` (Agent 02, giai đoạn xu hướng qua `aph.py trend`). Khi skill Agent chưa có, làm theo mục tiêu/đầu ra trong `docs/SYSTEM_ARCHITECTURE.md` và `rules/`. Với mỗi Agent:
+Mỗi Agent có skill riêng tên `dtm-<agent>`. Đã có: `skills/dtm-market-hunter/SKILL.md` (Agent 01), `skills/dtm-trend-hunter/SKILL.md` (Agent 02, giai đoạn xu hướng qua `aph.py trend`), `skills/dtm-supplier-hunter/SKILL.md` (Agent 05), `skills/dtm-profit-analyst/SKILL.md` (Agent 06), `skills/dtm-opportunity-evaluator/SKILL.md` (Agent 07, bước `evaluator` trong bảng mục 1). Chưa có: Agent 03, 04. Khi skill Agent chưa có, làm theo mục tiêu/đầu ra trong `docs/SYSTEM_ARCHITECTURE.md` và `rules/`. Với mỗi Agent:
 - Thu thập qua trình duyệt Claude trên PC (`mcp__remote-devices__Claude_Browser__*`) hoặc WebSearch; đọc trang bằng `get_page_text` hoặc `javascript_tool` (đợi 3–5 giây).
 - Ghi ngay từng dữ liệu bằng `aph.py add --run --kind observation|listing|supplier|demand|trend --json ...`. Dữ liệu `observed` phải có `evidence_excerpt` chép nguyên văn từ trang.
 - Shopee: khi gặp CAPTCHA, dừng và nhờ người dùng tự giải trong khung trình duyệt; chỉ đọc tiếp sau khi họ báo xong. Không bao giờ tự giải.
@@ -54,8 +54,9 @@ Một người ghi: nếu `runs/` có run khác chưa kết thúc (dưới 2 gi�
 
 ## 4. Cổng kiểm tra
 - Lợi nhuận: `aph.py profit --run --product --platform shopee|tiktok_shop --inputs @file.json`. Mỗi đầu vào kèm `ref` (id observation, `assumption:<id>` trong `data/assumptions/assumptions.json`, hoặc `user:<ghi chú>`). Phí sàn (`platform_fee_pct`, `payment_fee_pct`) chỉ nhận `assumption:` có nguồn, ngày, đúng sàn, đúng ngành hàng, đúng loại shop, còn hiệu lực; sai → `unverified_fees`. Kết quả `incomplete` → không kết luận lợi nhuận. Shopee (shop thường): mặc định dùng tổng phí 27% do người dùng chốt, `platform_fee_pct` 27 và `payment_fee_pct` 0, cả hai ref `assumption:shopee_total_fee_pct_user`. TikTok Shop: tương tự với `assumption:tiktok_shop_total_fee_pct_user` (27%).
-- Đánh giá: `aph.py score --run --product --scores @scores.json --types '["competition_gap"]'` (điểm thành phần theo `rules/scoring_rules.md`). Công cụ tự tính tổng, Data Confidence, trần, cổng.
-- Ghi trạng thái nghiên cứu theo `gate`: `aph.py set-status --run --product --research <status> --reason "<lý do>" --by orchestrator`.
+- Đánh giá (bước `evaluator`): theo skill `dtm-opportunity-evaluator`: `aph.py evaluate --run --product <id> [--variant <model>]` (trọng số v2, 5 nhóm, Risk Gates, GO / CONDITIONAL GO / NEED MORE DATA / NO GO, theo từng model). Lệnh cũ `aph.py score` (v1, 7 tiêu chí) chỉ giữ để đọc lịch sử.
+- Sau đánh giá: chỉ chạy Agent mà `next_actions` cần, không chạy lại toàn bộ. Việc có owner "Anh Khoa" → liệt kê cho người dùng.
+- Trạng thái nghiên cứu: `suggested_research_status` chỉ là đề xuất; ghi `aph.py set-status --run --product --research <status> --reason "<lý do>" --by orchestrator` khi người dùng đồng ý.
 
 ## 5. Kết thúc
 1. `aph.py finish-run --run <id> --summary "<tóm tắt>" --agents '[...]'`

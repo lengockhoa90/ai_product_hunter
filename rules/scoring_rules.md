@@ -1,5 +1,7 @@
 # Quy tắc chấm điểm (Opportunity Evaluator)
 
+> **Từ 2026-11-24 Agent 07 dùng chấm điểm v2** (`aph.py evaluate`, `config/scoring_weights_v2.json`, `docs/AGENT_07_AUDIT_DESIGN.md` mục 7): 5 nhóm 0–100 theo từng model, nhóm thiếu dữ liệu là null (không phải 0), Risk Gates. Phần dưới là chấm điểm v1 (`aph.py score`), giữ để đọc lịch sử.
+
 Điểm tiềm năng và Data Confidence là hai chỉ số độc lập. Cả hai do `aph.py score` tính; Evaluator chỉ chấm điểm thành phần 0–10 cho từng tiêu chí, kèm lý do và id bằng chứng.
 
 ## Điểm thành phần 0–10
