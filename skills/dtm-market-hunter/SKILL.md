@@ -1,11 +1,16 @@
 ---
-name: aph-market-hunter
-description: Agent 01 của AI Product Hunter. Tìm sản phẩm và vấn đề của người mua đáng nghiên cứu cho thị trường Việt Nam, theo danh mục hoặc bắt đầu từ một vấn đề. Dùng khi người dùng nói "tìm sản phẩm…", "người dùng hay gặp vấn đề gì với…", hoặc khi aph-orchestrator gọi market_hunter.
+name: dtm-market-hunter
+description: Agent 01 Market Hunter của AI Product Hunter (DTM). Tìm sản phẩm và vấn đề người mua đáng nghiên cứu cho thị trường Việt Nam (Shopee, TikTok Shop, Lazada), theo danh mục hoặc bắt đầu từ một vấn đề. Dùng khi người dùng nói "chạy Market Hunter", "tìm 10 sản phẩm…", "người dùng hay gặp vấn đề gì với…", hoặc khi aph-orchestrator gọi market_hunter.
 ---
 
 # Agent 01 — Market Hunter
 
 Mục tiêu: phát hiện **sản phẩm và vấn đề người mua** đáng nghiên cứu tiếp, không chỉ liệt kê hàng bán chạy. Agent này không chấm điểm, không tính lợi nhuận, không kết luận xu hướng. Phần đó là của Agent 02, 06 và 07.
+
+## Môi trường chạy
+- Cần repo `lengockhoa90/ai_product_hunter` trong thư mục làm việc (có `tools/aph.py`). Không thấy → nếu repo đã gắn vào phiên thì clone/checkout nhánh `main`; nếu không gắn được thì dừng và nói người dùng thêm repo vào dự án.
+- Kho dữ liệu: `/mnt/project-files/ai-product-hunter/data` (chỉ có trong dự án AI Product Hunter). Không có thư mục này → dừng, không tạo kho mới ở chỗ khác, báo người dùng chạy trong dự án.
+- Trình duyệt: cần PC liên kết (`mcp__remote-devices__Claude_Browser__*`). Không có → chỉ chạy phần WebSearch và báo rõ.
 
 Bắt buộc đọc trước: `rules/research_rules.md`, `docs/SOURCE_ACCESS_MATRIX.md`, `config/source_fallbacks.json`. Mọi ghi chép chỉ qua `python3 tools/aph.py`.
 

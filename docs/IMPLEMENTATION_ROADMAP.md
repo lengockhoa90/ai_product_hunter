@@ -85,7 +85,7 @@ Mỗi Agent là `skills/aph-<agent>/SKILL.md` gồm: Mục tiêu · Input · Out
 
 | Thứ tự | Agent | Trạng thái | Tiêu chí kiểm thử thật |
 |---|---|---|---|
-| 3.1 | **01 Market Hunter** (2 chế độ: theo danh mục và problem-first) | 🧪 Skill `aph-market-hunter` đã viết. Chế độ B chạy thật 1 lần (run_20261124T052140_58ec): 1 vấn đề, 2 giải pháp, chạy lại không trùng; **chưa đạt** ≥ 3 nguồn cho vấn đề. Chế độ A chạy thật 1 lần (run_20261124T053822_3b7c): 10 sản phẩm, mỗi sản phẩm có nguồn + ngày + đoạn trích, chạy lại không trùng; chưa có bằng chứng "mới trên thị trường" cho sản phẩm nào. ⏳ Đang chờ người dùng duyệt PR | Xem mục 5.1 |
+| 3.1 | **01 Market Hunter** (2 chế độ: theo danh mục và problem-first) | 🧪 Skill `dtm-market-hunter` đã viết. Chế độ B chạy thật 1 lần (run_20261124T052140_58ec): 1 vấn đề, 2 giải pháp, chạy lại không trùng; **chưa đạt** ≥ 3 nguồn cho vấn đề. Chế độ A chạy thật 1 lần (run_20261124T053822_3b7c): 10 sản phẩm, mỗi sản phẩm có nguồn + ngày + đoạn trích, chạy lại không trùng; chưa có bằng chứng "mới trên thị trường" cho sản phẩm nào. ⏳ Đang chờ người dùng duyệt PR | Xem mục 5.1 |
 | 3.2 | 06 Profit Analyst | ⬜ | Lấy được ít nhất 1 biểu phí cố định theo ngành có nguồn; `profit` đúng với bảng tính tay; thiếu phí thì `incomplete` |
 | 3.3 | 07 Opportunity Evaluator | ⬜ | Điểm, Data Confidence, trần 74, nhãn 5 dạng cơ hội cho các sản phẩm của 3.1 |
 | 3.4 | 03 Demand Analyst | ⬜ | Với 1 vấn đề thật: ≥ 3 nguồn độc lập; có tín hiệu ngoài tín hiệu chú ý |
