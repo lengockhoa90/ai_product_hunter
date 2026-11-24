@@ -781,6 +781,9 @@ def trend_indicator(series, window=12):
     pts = sorted((p for p in series if isinstance(p, dict) and p.get("t") is not None and p.get("v") is not None),
                  key=lambda p: str(p["t"]))
     vals = [float(p["v"]) for p in pts]
+    # Chuỗi số tuyệt đối (ví dụ TikTok CSI cộng theo tuần) được quy về 0–100 như Trends để ngưỡng ít dữ liệu dùng chung được.
+    scale = 100.0 / max(vals) if vals and max(vals) > 100 else 1.0
+    vals = [v * scale for v in vals]
     if len(vals) < 2 * window:
         return {"stage": "unknown", "reason": "too_few_points", "points": len(vals)}
     nonzero = sum(v > 0 for v in vals) / len(vals)
@@ -817,8 +820,9 @@ def trend_assess(store, pid):
             usable.setdefault(x["source"], x)
     dirs = {DIRECTION[x["stage"]] for x in usable.values()}
     if len(usable) >= 2 and len(dirs) == 1:
-        stages = [x["stage"] for x in usable.values()]
-        stage = max(set(stages), key=stages.count)
+        stages = {x["stage"] for x in usable.values()}
+        # Các nguồn cùng hướng nhưng khác mức (ví dụ growing và trending): chọn mức thận trọng nhất của hướng đó.
+        stage = stages.pop() if len(stages) == 1 else {1: "growing", 0: "stable", -1: "declining"}[dirs.pop()]
         basis = f"{len(usable)} nguồn cùng hướng: " + ", ".join(f"{k}={v['stage']}" for k, v in usable.items())
     elif len(usable) >= 2:
         stage, basis = "unknown", "Các nguồn mâu thuẫn: " + ", ".join(f"{k}={v['stage']}" for k, v in usable.items())

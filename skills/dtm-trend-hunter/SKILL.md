@@ -28,17 +28,22 @@ Khác skill `trend-hunter-dtm` (chủ đề video). Agent này chỉ trả lời
 
 ## 3. Nguồn thứ 2 (bắt buộc để kết luận)
 Theo thứ tự, dùng nguồn đầu tiên mở được:
-- TikTok Creator Search Insights `https://www.tiktok.com/csi` (cần đăng nhập): độ phổ biến chủ đề → `metric=csi_popularity`, có `series` nếu trang có biểu đồ theo thời gian.
-- TikTok tìm kiếm video `tiktok.com/search/video?q=…`: số video theo ngày đăng → `metric=content_signal`.
+- TikTok Creator Search Insights `https://www.tiktok.com/csi` (người dùng tự đăng nhập):
+  1. Mở `https://www.tiktok.com/csi/search?keyword=<từ khóa>`, đợi 5 giây, lấy danh sách chủ đề từ `document.body.innerText` (phần sau "Hành động nhanh", tách theo "Tải lên").
+  2. Chỉ dùng chủ đề **trùng hoặc rất gần** từ khóa (ghi rõ trong `note` khi lệch). Không có chủ đề khớp → ghi trong báo cáo, không thay bằng chủ đề khác nghĩa. Chủ đề tiếng nước ngoài không dùng.
+  3. Bấm vào chủ đề, chọn "6 tháng qua" → Xác nhận. Đọc chuỗi theo ngày từ phản hồi mạng `inspired_query/detail/popularity` bằng `read_network_requests` (không đọc số từ hình biểu đồ).
+  4. Cộng theo khối 7 ngày kết thúc ở ngày cuối. Khoảng 0 liên tục trong chủ đề vốn có số (đã gặp 18/6–27/7/2026) là mất dữ liệu: tuần chạm khoảng đó ghi `v: null`, không ghi 0.
+  5. `observation`: `metric=csi_popularity`, `platform=tiktok_csi`, `source_type=social`, `value` = độ phổ biến 7 ngày hiển thị, `evidence_excerpt` = dòng chủ đề trên trang tìm kiếm (ví dụ "Đèn cảm biến 399"), `series` = các tuần. Công cụ tự quy chuỗi số tuyệt đối về 0–100.
+- TikTok tìm kiếm video `tiktok.com/search/video?q=…`: chỉ khoảng 20 video xếp theo liên quan, không đủ làm chuỗi theo tuần. Chỉ dùng để xem nội dung, không làm nguồn xu hướng.
 - Nhãn "Đã bán" cùng tin đăng Lazada/Shopee đo ở **hai ngày khác nhau** → `metric=sold_label` (đây là tín hiệu nhu cầu, quý hơn tín hiệu chú ý).
-Ngày 2026-11-24 trình duyệt từ chối mở tiktok.com → `log-access --status error`. Không thử lách; báo người dùng.
+Trình duyệt từ chối mở tiktok.com → `log-access --status error`, không thử lách; báo người dùng.
 
 ## 4. Phân loại (chỉ bằng công cụ)
 `aph.py trend --run <run> --product <id>` (thêm `--dry` để xem trước).
 - Công cụ so **trung vị** 12 tuần gần nhất với 12 tuần trước đó (một tuần đột biến không đổi kết quả).
 - Trung vị cả hai nửa dưới 10, hoặc hơn nửa số tuần bằng 0 → `low_volume` (quá ít người tìm để đọc xu hướng).
 - Tăng ≥ 30%: `emerging` (đầu năm gần như 0), `trending` (gấp ≥ 1,5 lần trung vị năm), còn lại `growing`. Giảm ≥ 30%: `declining`. Còn lại `stable`.
-- **Chỉ kết luận khi ≥ 2 nguồn khác nhau có tín hiệu và cùng hướng.** Một nguồn → `stage=unknown`, `basis` ghi chỉ báo của nguồn đó. Hai nguồn ngược hướng → `unknown`, ghi "mâu thuẫn".
+- **Chỉ kết luận khi ≥ 2 nguồn khác nhau có tín hiệu và cùng hướng.** Cùng hướng nhưng khác mức (growing và trending) → công cụ chọn mức thận trọng (growing). Một nguồn → `stage=unknown`, `basis` ghi chỉ báo của nguồn đó. Hai nguồn ngược hướng → `unknown`, ghi "mâu thuẫn".
 - Không tự viết `stage` bằng tay. Phân loại sai do công cụ → sửa công cụ, chạy kiểm thử, `aph.py retract` bản ghi cũ rồi chạy lại.
 
 ## 5. Kết thúc và báo cáo

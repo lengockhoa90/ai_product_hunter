@@ -495,3 +495,23 @@ class TestTrendStage(Base):
         r = aph.trend_assess(self.st, pid)
         self.assertEqual(r["stage"], "unknown")
         self.assertIn("mâu thuẫn", r["basis"])
+
+    def test_absolute_series_scaled_and_gaps_dropped(self):
+        # Chuỗi số tuyệt đối (TikTok CSI cộng theo tuần) cho cùng kết quả như chuỗi 0–100 cùng hình dạng.
+        self.assertEqual(aph.trend_indicator(weekly([2000] * 41 + [4000] * 12))["stage"], "trending")
+        self.assertEqual(aph.trend_indicator(weekly([84] * 13 + [218] * 12))["stage"],
+                         aph.trend_indicator(weekly([8400] * 13 + [21800] * 12))["stage"])
+        # Sau khi quy về 0–100, chuỗi gần như phẳng với vài đột biến lớn bị coi là ít dữ liệu (chưa quy đổi thì 14 > 10 sẽ lọt).
+        spiky = aph.trend_indicator(weekly([14, 14, 14, 14, 2000] * 5))
+        self.assertEqual(spiky["reason"], "low_volume")
+        # Tuần mất dữ liệu (v = None) bị bỏ, không tính như 0; thiếu tuần thì không kết luận.
+        gap = weekly([12000] * 2 + [None] * 7 + [12000] * 16)
+        self.assertEqual(aph.trend_indicator(gap)["reason"], "too_few_points")
+
+    def test_same_direction_different_level_takes_conservative(self):
+        pid = self.product()["product_id"]
+        self.obs(pid, metric="search_interest", url="https://trends.google.com/a", series=weekly([20] * 41 + [27] * 12), value=27, evidence_excerpt="tuần cuối 27")
+        self.obs(pid, metric="csi_popularity", url="https://www.tiktok.com/csi", series=weekly([20] * 41 + [40] * 12), value=40, evidence_excerpt="độ phổ biến 40")
+        r = aph.trend_assess(self.st, pid)
+        self.assertEqual(r["stage"], "growing")
+        self.assertIn("2 nguồn cùng hướng", r["basis"])
