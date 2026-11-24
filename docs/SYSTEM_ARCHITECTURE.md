@@ -1,6 +1,6 @@
 # AI PRODUCT HUNTER — SYSTEM ARCHITECTURE
 
-> Phiên bản: 0.1 (Phase 1) · Ngày: 2026-11-24 · Trạng thái: Bản thiết kế, chưa triển khai code
+> Phiên bản: 0.2 (cập nhật Phase 2: gộp bản ghi theo run vào `records/`) · Ngày: 2026-11-24 · Trạng thái: Bản thiết kế, chưa triển khai code
 > Phạm vi: kiến trúc tổng thể, phối hợp Agent, mô hình dữ liệu, lưu trữ, lập lịch, giới hạn kỹ thuật.
 
 ---
@@ -236,11 +236,10 @@ Evaluator gắn nhãn cơ hội dựa trên quy tắc có thể kiểm tra, khô
 ```
 /mnt/project-files/ai-product-hunter/data/
   products/<product_id>.json          # hồ sơ gốc (ít thay đổi, ghi có khóa)
-  observations/YYYY/MM/<run_id>.jsonl # append-only, mỗi run một file
-  listings/…, suppliers/…, evaluations/…  (cùng kiểu theo run)
-  decisions/<product_id>.jsonl        # quyết định người dùng
-  outcomes/<product_id>.jsonl         # kết quả kinh doanh thực tế
-  runs/<run_id>.json                  # nhật ký chạy + access_log
+  records/YYYY/MM/<run_id>.jsonl      # append-only, mỗi run một file; mọi loại bản ghi có trường "kind":
+                                      # observation, listing, supplier, demand, trend, profit, evaluation,
+                                      # decision, outcome, watch, access, note
+  runs/<run_id>.json                  # nhật ký chạy
   assumptions/assumptions.json        # giả định chi phí có nguồn & hạn
   index.sqlite                        # dựng lại từ file bằng aph.py reindex
 ```

@@ -9,8 +9,8 @@
 
 | Phase | Mục tiêu | Trạng thái |
 |---|---|---|
-| 1 | Kiến trúc + kiểm tra môi trường | ✅ (tài liệu; không có code) |
-| 2 | Core system: kho dữ liệu, công cụ, orchestrator, rules, kiểm thử truy cập nguồn | ⬜ |
+| 1 | Kiến trúc + kiểm tra môi trường | ✅ |
+| 2 | Core system: kho dữ liệu, công cụ, orchestrator, rules, kiểm thử truy cập nguồn | 🟡 (xong phần code + kiểm thử; chờ duyệt PR và lưu skill) |
 | 3 | 7 Agent (lần lượt, mỗi Agent có kiểm thử thật) | ⬜ |
 | 4 | Báo cáo + dashboard | ⬜ |
 | 5 | Tự động hóa theo lịch | ⬜ |
@@ -49,10 +49,10 @@ Nguyên tắc: mỗi bước chỉ đánh dấu ✅ khi có kiểm thử thật 
 | # | Hạng mục | Sản phẩm | Tiêu chí hoàn thành |
 |---|---|---|---|
 | 2.1 | Kiểm thử truy cập nguồn | `docs/SOURCE_ACCESS_MATRIX.md` | Mỗi nguồn (Shopee, TikTok, TikTok CSI, Google Trends, Google, 1688, Alibaba, Taobao, Lazada, Amazon, AliExpress, website nhà sản xuất VN/CN) có kết quả thật: đọc được / cần đăng nhập / anti-bot / lỗi, kèm ngày kiểm tra |
-| 2.2 | Schemas | `schemas/*.schema.json` cho Product, Observation, Listing, Supplier, DemandSignal, ProfitScenario, Assumption, Evaluation, Decision, Outcome, Run, WatchRule | Validate được bằng script |
+| 2.2 | Schemas | `schemas/entities.json` (một file, công cụ tự kiểm tra) cho Product, Observation, Listing, Supplier, DemandSignal, ProfitScenario, Assumption, Evaluation, Decision, Outcome, Run, WatchRule | Validate được bằng script |
 | 2.3 | Công cụ `tools/aph.py` | Lệnh: `init`, `new-run`, `match`, `add-product`, `add-obs`, `add-listing`, `add-supplier`, `gate`, `score`, `profit`, `confidence`, `reindex`, `query`, `log-access` | Unit test (`tests/`) với input do test tự sinh trong thư mục tạm, không ghi vào kho thật |
 | 2.4 | Chống trùng lặp | `match` theo function_key + alias + độ tương đồng; `merge_candidate` | Test các ca: trùng tên khác ngôn ngữ, biến thể WiFi/Zigbee, tên gần giống nhưng khác sản phẩm |
-| 2.5 | Rules dùng chung | `rules/research_rules.md`, `rules/source_policy.md`, `rules/verification.md`, `rules/scoring_rules.md`, `rules/safety.md` | Đọc được, được skill tham chiếu |
+| 2.5 | Rules dùng chung | `rules/research_rules.md` (bằng chứng, xác minh, truy cập nguồn, an toàn), `rules/scoring_rules.md` | Đọc được, được skill tham chiếu |
 | 2.6 | Config | `config/scoring_weights.json` (v1 theo đặc tả), `config/categories.json` (9 nhóm ưu tiên), `config/depth_budgets.json` | `aph.py score` dùng được |
 | 2.7 | Giả định chi phí | `data/assumptions/assumptions.json` | **Chỉ** điền từ nguồn chính thức (biểu phí Shopee/TikTok Shop, đơn vị vận chuyển) có URL + ngày; mục chưa có nguồn để trống và đánh dấu `missing` |
 | 2.8 | Orchestrator | `skills/aph-orchestrator/SKILL.md` | Với 7 câu lệnh mẫu trong đặc tả, sinh ra Research Plan đúng (kiểm thử khô, chưa chạy Agent) |
@@ -141,14 +141,13 @@ ai-product-hunter/                    # Git repo (D1) + bản sao trong /mnt/pro
 │   └── aph-opportunity-evaluator/SKILL.md
 ├── rules/
 │   ├── research_rules.md
-│   ├── source_policy.md
-│   ├── verification.md
-│   ├── scoring_rules.md
-│   └── safety.md
-├── schemas/                          # JSON Schema cho từng thực thể
+│   └── scoring_rules.md
+├── schemas/entities.json             # định nghĩa trường cho mọi bản ghi
 ├── config/
 │   ├── scoring_weights.json
 │   ├── categories.json
+│   ├── confidence.json
+│   ├── business_profile.json
 │   └── depth_budgets.json
 ├── tools/
 │   ├── aph.py                        # CLI duy nhất: dedup, obs, score, profit, confidence, gate, reindex
@@ -162,9 +161,7 @@ ai-product-hunter/                    # Git repo (D1) + bản sao trong /mnt/pro
 /mnt/project-files/ai-product-hunter/  # chỉ ở thư mục dự án (không commit)
 ├── data/
 │   ├── products/
-│   ├── observations/YYYY/MM/
-│   ├── listings/  suppliers/  evaluations/
-│   ├── decisions/  outcomes/
+│   ├── records/YYYY/MM/<run_id>.jsonl
 │   ├── runs/
 │   ├── assumptions/
 │   └── index.sqlite                  # dựng lại được
@@ -174,7 +171,7 @@ ai-product-hunter/                    # Git repo (D1) + bản sao trong /mnt/pro
     └── deep/
 ```
 
-Hiện tại (Phase 1) chỉ có `docs/` được tạo. Các thư mục khác được tạo khi có nội dung thật ở Phase 2 trở đi.
+`templates/`, `tools/report.py` và các skill Agent được tạo ở Phase 3–4 khi có nội dung thật.
 
 ---
 
@@ -185,3 +182,21 @@ Hiện tại (Phase 1) chỉ có `docs/` được tạo. Các thư mục khác �
 3. Phase 2.2–2.7: schemas, `aph.py`, rules, config, tests.
 4. Phase 2.8: orchestrator + đề xuất lưu skill.
 5. Phase 3 theo thứ tự 01 → 06 → 07 → 02 → 05 → 04 → 03, rồi deep-dive end-to-end một sản phẩm thật.
+
+---
+
+## Kết quả Phase 2 (2026-11-24)
+
+| # | Hạng mục | Trạng thái | Bằng chứng |
+|---|---|---|---|
+| 2.1 | Kiểm thử truy cập nguồn | ✅ | `docs/SOURCE_ACCESS_MATRIX.md`. Shopee bị CAPTCHA kể cả khi đã đăng nhập; TikTok, TikTok CSI, Google Trends (đọc được bảng số), Google VN, Lazada, Alibaba, 1688 (GBK) đều đọc được |
+| 2.2 | Schemas | ✅ | `schemas/entities.json` |
+| 2.3–2.4 | `tools/aph.py` + chống trùng lặp | ✅ | 24 unit test đạt (`tests/test_aph.py`), gồm tính lợi nhuận đối chiếu số tính tay |
+| 2.5 | Rules | ✅ | `rules/research_rules.md`, `rules/scoring_rules.md` |
+| 2.6 | Config | ✅ | trọng số v1, độ tin cậy, danh mục, ngân sách độ sâu, hồ sơ kinh doanh (10 triệu, Shopee + TikTok, nguồn trong nước) |
+| 2.7 | Giả định chi phí | 🟡 | Có: Phí Xử Lý Giao Dịch Shopee 6% và Voucher Xtra 5,5% (tối đa 50.000 đ) từ banhang.shopee.vn/edu/article/21087 (bài cho Shopee Mall, ngày 14/05/2026). Thiếu: phí cố định theo ngành hàng, phí TikTok Shop → lấy ở deep-dive đầu tiên |
+| 2.8 | Orchestrator | ✅ (chờ người dùng lưu skill) | `skills/aph-orchestrator/SKILL.md` |
+| 2.9 | `CLAUDE.md` | ✅ | |
+| Run thật | ✅ | `run_20261124…`: 1 sản phẩm (cảm biến rò rỉ nước Zigbee), 2 observation, 2 NCC tham khảo, 1 lỗi Shopee CAPTCHA; thêm lại bằng tên khác (en/zh) → nhận ra sản phẩm cũ, không tạo trùng. Data Confidence = 37,9 (thiếu lợi nhuận, khác biệt, phù hợp) |
+
+Phát hiện từ run thật: Google Trends cho "cảm biến rò rỉ nước" tại VN gần như bằng 0 suốt 12 tháng (so với "công tắc thông minh" trung bình 56). Đây là dữ liệu quan sát, chưa phải kết luận về sản phẩm.
