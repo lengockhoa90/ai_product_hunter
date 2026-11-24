@@ -1,7 +1,8 @@
 # AI PRODUCT HUNTER — SYSTEM ARCHITECTURE
 
-> Phiên bản: 0.3 (điều chỉnh theo `PHASE_1_AUDIT.md` và quyết định vận hành **bán tự động** của người dùng) · Ngày: 2026-11-24
-> Thay đổi so với 0.1: gộp bản ghi theo run vào `records/` (0.2); mô hình vận hành bán tự động, bỏ dự phòng Cowork desktop, quy tắc một người ghi, phân tầng theo dõi, xử lý lỗi lịch, bắt buộc `evidence_excerpt`, tách việc Demand/Competitor (0.3).
+> Phiên bản: 0.4 (bổ sung Problem-based Discovery, nâng cấp Demand Analyst, Data Confidence, Profit Analyst, cơ chế kết hợp nguồn) · Ngày: 2026-11-24
+> Trạng thái từng thành phần: xem bảng trạng thái ở đầu `IMPLEMENTATION_ROADMAP.md`.
+> Thay đổi so với 0.1: gộp bản ghi theo run vào `records/` (0.2); mô hình vận hành bán tự động, bỏ dự phòng Cowork desktop, quy tắc một người ghi, phân tầng theo dõi, xử lý lỗi lịch, bắt buộc `evidence_excerpt`, tách việc Demand/Competitor (0.3); mục 3.6–3.8, 4.2, 4.4, 4.5 (0.4).
 > Phạm vi: kiến trúc tổng thể, phối hợp Agent, mô hình dữ liệu, lưu trữ, lập lịch, giới hạn kỹ thuật.
 
 ---
@@ -143,6 +144,7 @@ Mọi mục dưới đây là kết quả kiểm tra thật trong phiên này, k
 | "Nghiên cứu sâu cảm biến rò rỉ nước" | deep_dive | 01(định danh) → 02 → 03 → 04 → 05 → 06 → 07 | deep |
 | "Tìm 5 nhà cung cấp sản phẩm này trên 1688" | supplier | 05 (+06 cập nhật nếu có giá) | standard |
 | "Phân tích khả năng kinh doanh trên Shopee" | viability | 04 → 06 → 07 | standard |
+| "Chủ nhà hay gặp vấn đề gì với rò rỉ nước mà chưa có giải pháp tốt?" | problem_discover | 01 (problem-first) → 03 → (04 nhanh) → 07, theo mục 3.6 | standard |
 | "So sánh 5 sản phẩm tiềm năng nhất tuần này" | compare | 07 (đọc kho, chỉ bổ sung dữ liệu cũ quá hạn) | quick |
 | "Theo dõi sản phẩm này 30 ngày" | watch | tạo watch rule; lịch chạy 02/04 định kỳ | — |
 | "Đánh giá lại những sản phẩm tôi đã thử nghiệm" | learn | đọc outcomes → báo cáo hiệu chỉnh (đề xuất, không tự đổi trọng số) | — |
@@ -183,10 +185,59 @@ Evaluator gắn nhãn cơ hội dựa trên quy tắc có thể kiểm tra, khô
 | Dạng | Tín hiệu kiểm tra |
 |---|---|
 | Emerging Product | Xuất hiện ở thị trường nguồn (CN/quốc tế), số người bán VN quan sát được thấp, có ≥ 2 mốc thời gian cho thấy tăng |
-| Demand Gap | Agent 03 có cụm phàn nàn/nhu cầu lặp lại (≥ 3 nguồn độc lập) mà sản phẩm hiện có chưa giải quyết |
+| Demand Gap | Một `problem` đã `validated` có `solution_gaps` và tín hiệu nhu cầu (phàn nàn, câu hỏi, ý định mua) từ ≥ 3 nguồn độc lập |
 | Competition Gap | Có nhu cầu nhưng đối thủ ít, hoặc điểm đánh giá/nội dung/bảo hành của đối thủ yếu |
 | Price Gap | Giá nhập có dữ liệu + chi phí đủ → biên lợi nhuận kịch bản cơ sở vượt ngưỡng ở mức giá cạnh tranh |
-| Bundle Opportunity | Các sản phẩm trong kho có quan hệ `complements` (ví dụ cảm biến rò nước + van khóa + hub) và cùng phục vụ một vấn đề |
+| Bundle Opportunity | Một `problem` có nhiều `solution` với `fit=bundle_component` (ví dụ cảm biến rò nước + van khóa + hub) mà chưa có người bán VN bán thành bộ |
+
+### 3.6 Problem-based Opportunity Discovery (mới ở 0.4)
+
+Ngoài cách tìm theo danh mục/từ khóa, hệ thống có luồng **bắt đầu từ vấn đề của khách hàng**:
+
+```
+Vấn đề (problem) ──► Nhu cầu theo vấn đề (demand, problem_ref) ──► Giải pháp hiện có (existing_solutions)
+      │                                                                  │
+      └────────────► Khoảng trống giải pháp (solution_gaps) ◄────────────┘
+                                   │
+                                   ▼
+              Sản phẩm / bộ sản phẩm đề xuất (solution: full | partial | bundle_component)
+```
+
+| Bước | Agent | Việc làm | Bản ghi |
+|---|---|---|---|
+| P1. Phát hiện vấn đề | Market Hunter (chế độ problem-first) + Demand Analyst | Tìm câu hỏi, phàn nàn, tình huống lặp lại: hỏi đáp và đánh giá trên sàn, TikTok (mô tả video, câu hỏi trong tiêu đề), diễn đàn VN, "Mọi người cũng hỏi" của Google | `problem` (statement, problem_key, category, segment, context, evidence) |
+| P2. Đo nhu cầu theo vấn đề | Demand Analyst | Lượng câu hỏi, phàn nàn, ý định mua, giải pháp thay thế đang dùng, mức giá chấp nhận — gắn `problem_ref`, không cần có sản phẩm | `demand`/`observation` với `problem_ref` |
+| P3. Giải pháp hiện có | Market Hunter | Sản phẩm đang bán ở VN và thị trường nguồn giải quyết vấn đề này, cách khách đang tự xoay xở | `existing_solutions`, `solution_gaps` trong `problem` |
+| P4. Ghép sản phẩm | Market Hunter | Sản phẩm (hoặc bộ) giải quyết khoảng trống. Sản phẩm được định danh/chống trùng như cũ | `solution` (problem_ref → product_id, fit, bundle_with) |
+| P5. Đánh giá | Evaluator | Bằng chứng của vấn đề tự động được tính vào Data Confidence của mọi sản phẩm gắn với vấn đề đó | `evaluation` |
+
+- Chống trùng vấn đề: cùng `problem_key` (chuẩn hóa) hoặc câu mô tả giống ≥ 0,85 → dùng lại vấn đề cũ.
+- `aph.py problems` liệt kê vấn đề, tín hiệu nhu cầu theo loại, giải pháp/bộ giải pháp và khoảng trống.
+- Trạng thái vấn đề: `candidate` → `validated` (≥ 3 nguồn độc lập cho thấy vấn đề lặp lại) hoặc `rejected`.
+- Nguồn chưa kiểm thử truy cập: diễn đàn VN, hỏi đáp trên Lazada, bình luận TikTok (phải mở từng video). Kiểm thử ở bước đầu của Agent 01/03.
+
+### 3.7 Demand Analyst (nâng cấp ở 0.4)
+
+| Loại tín hiệu (`demand.type`) | Bằng chứng hợp lệ | Ví dụ nguồn |
+|---|---|---|
+| `product_demand` | Đã bán, số đánh giá, số câu hỏi về sản phẩm | Lazada, Shopee (khi người dùng giải CAPTCHA), TikTok Shop |
+| `unmet_need` | Khách mô tả vấn đề chưa có giải pháp tốt | Diễn đàn, đánh giá 1–3 sao, câu hỏi chưa được trả lời |
+| `complaint` | Phàn nàn lặp lại về sản phẩm/giải pháp hiện có (≥ 3 nguồn độc lập mới gọi là lặp lại) | Đánh giá, bình luận |
+| `purchase_intent` | "Mua ở đâu", "giá bao nhiêu", "có ship không", hỏi link | Bình luận, hỏi đáp |
+| `question` | Câu hỏi về cách dùng/chọn/lắp đặt | Hỏi đáp, diễn đàn, Google "Mọi người cũng hỏi" |
+| `alternative_solution` | Khách đang dùng cách khác (`alternatives`) | Diễn đàn, bình luận |
+| `price_acceptance` | Mức giá khách chấp nhận (`price_low_vnd`–`price_high_vnd`) từ câu nói của khách hoặc khoảng giá đang bán chạy | Bình luận, đánh giá, sold_label theo mức giá |
+| `price_sensitivity` | Khách chê đắt, so giá | Bình luận, đánh giá |
+
+**Tín hiệu chú ý ≠ nhu cầu.** Google Trends (`search_interest`), TikTok CSI (`csi_popularity`) và lượt xem/thích TikTok (`content_signal`) chỉ là tín hiệu chú ý. Nếu tiêu chí nhu cầu chỉ có loại tín hiệu này thì độ tin cậy nhu cầu tối đa 0,3 (`attention_only=true`). Số tin đăng (`listing_count`) là tín hiệu nguồn cung/cạnh tranh, không tính là nhu cầu.
+
+### 3.8 Kết hợp nhiều nguồn khi Shopee bị CAPTCHA (mới ở 0.4)
+
+- **Không vượt CAPTCHA.** Shopee chỉ được đọc trong phiên thu thập sau khi người dùng tự giải.
+- `config/source_fallbacks.json` khai báo, cho mỗi nhu cầu dữ liệu (giá VN, cạnh tranh VN, nhu cầu VN, chú ý, nguồn cung, phí), danh sách nguồn theo thứ tự ưu tiên và cách truy cập (`browser`, `browser_human`, `user_export`, `websearch`).
+- `aph.py coverage --product` cho biết mỗi nhu cầu đã có bằng chứng từ những nền tảng nào, đã đủ số nền tảng tối thiểu chưa, có Shopee không, nguồn nào nên thử tiếp, và các nguồn đã bị chặn.
+- Khi Shopee vắng mặt: báo cáo ghi rõ "Không có dữ liệu Shopee". Giá và cạnh tranh VN phải có ≥ 2 nền tảng khác (ví dụ Lazada + website nhà phân phối hoặc TikTok). Không suy ra số liệu Shopee từ nền tảng khác.
+- Thiếu độ phủ thì độ tin cậy tiêu chí thấp, dẫn tới trần điểm 74 cho tiêu chí trọng yếu (mục 4.4).
 
 ---
 
@@ -203,12 +254,14 @@ Evaluator gắn nhãn cơ hội dựa trên quy tắc có thể kiểm tra, khô
 | Thực thể | Trường chính |
 |---|---|
 | **Product** | `product_id`, `canonical_name`, `aliases[]` (vi/en/zh), `category_path`, `function_key` (khóa chuẩn hóa), `key_specs{}`, `research_status`, `business_status`, `relations[]` (complements/variant_of/substitute), `first_seen_at`, `created_by_run` |
-| **Observation** | `obs_id`, `product_id`, `agent`, `metric` (price_vnd, seller_count, sold_label, review_score, search_interest, mention_count, moq, unit_cost_cny…), `value`, `unit`, `range_low/high`, `market` (VN/CN/global), `source_url`, `source_type` (marketplace/search/social/manufacturer/news/user), `collected_at`, `observed_at`, `verification`, `confidence` (0–1), `run_id`, `note` |
+| **Observation** | `obs_id`, `product_id` **hoặc** `problem_ref`, `agent`, `metric` (price_vnd, seller_count, sold_label, review_score, search_interest, mention_count, moq, unit_cost_cny…), `value`, `unit`, `range_low/high`, `market` (VN/CN/global), `source_url`, `source_type` (marketplace/search/social/manufacturer/news/user), `collected_at`, `observed_at`, `verification`, `confidence` (0–1), `run_id`, `note` |
 | **Listing** (đối thủ) | `listing_id`, `product_id`, `platform`, `shop_name`, `url`, `price`, `sold_label`, `rating`, `review_count`, `warranty`, `content_quality_note`, `strengths[]`, `weaknesses[]`, `collected_at` |
 | **Supplier** | `supplier_id`, `name`, `platform`, `url`, `price_tiers[]`, `moq`, `oem_odm`, `lead_time`, `certifications[]`, `warranty`, `ship_to_vn`, `trust_signals[]`, `trust_level`, `quote_status` (`listed`/`need_quote`/`quoted`), `collected_at` |
-| **DemandSignal** | `product_id`, `type` (product_demand/unmet_need/complaint/purchase_intent/price_sensitivity), `theme`, `evidence[]` (obs_id), `independent_sources` |
+| **DemandSignal** | `product_id` **hoặc** `problem_ref`, `type` (8 loại, mục 3.7), `theme`, `evidence[]`, `independent_sources`, `alternatives[]`, `price_low_vnd`/`price_high_vnd` |
+| **Problem** (0.4) | `id`, `statement`, `problem_key`, `category`, `segment`, `context`, `existing_solutions[]`, `solution_gaps[]`, `status` (candidate/validated/rejected), `evidence[]` |
+| **Solution** (0.4) | `problem_ref`, `product_id`, `fit` (full/partial/bundle_component), `bundle_with[]`, `rationale`, `evidence[]` |
 | **ProfitScenario** | `product_id`, `scenario` (conservative/base/optimistic), `inputs{}` mỗi input kèm obs_id hoặc assumption_id, `outputs{}` (gross, net, margin, breakeven_units, test_capital), `confidence` |
-| **Assumption** | `assumption_id`, tên chi phí (phí sàn, phí thanh toán, ads %, đóng gói…), giá trị/khoảng, nguồn + ngày (ví dụ trang biểu phí chính thức của sàn), `valid_until` |
+| **Assumption** | `id`, tên chi phí, `value`, `platform`, `applies_to_categories[]` (tên ngành hàng của sàn, hoặc `all` khi nguồn ghi rõ), `shop_type` (mall/normal/all), `source_url`, `source_date`, `valid_until`, `status` (`missing` khi chưa có nguồn) |
 | **Evaluation** | `eval_id`, `product_id`, `scores{7 tiêu chí}`, `total`, `data_confidence`, `opportunity_types[]`, `cap_reason`, `weights_version`, `evaluated_at` |
 | **Decision** | quyết định của người dùng + lý do + thời điểm |
 | **Outcome** | kết quả thử nghiệm: số lượng bán, doanh thu, lợi nhuận thực, chi ads, tỷ lệ hoàn, phản hồi, kỳ báo cáo |
@@ -226,7 +279,18 @@ Evaluator gắn nhãn cơ hội dựa trên quy tắc có thể kiểm tra, khô
 
 - Điểm tiềm năng 0–100 theo trọng số đặc tả (20/15/15/20/10/10/10), lưu trong `config/scoring_weights.json` có `version`.
 - Mỗi tiêu chí có rubric định lượng trong `rules/scoring_rules.md` (ví dụ "Mức độ cạnh tranh" dựa trên số gian hàng quan sát, điểm đánh giá trung bình, chất lượng nội dung).
-- **Data Confidence** 0–100 tính độc lập: trung bình có trọng số theo độ quan trọng của trường × hệ số xác minh (observed 1.0, reported 0.7, user_input 0.8, estimated 0.4, inferred 0.3) × hệ số độ tươi (giảm theo tuổi dữ liệu so với hạn của từng loại).
+- **Data Confidence** 0–100 tính độc lập: trung bình có trọng số theo độ quan trọng của trường × hệ số xác minh × hệ số độ tươi (giảm theo tuổi dữ liệu so với hạn của từng loại).
+- **4 lớp dữ liệu** (`config/confidence.json` v2), công cụ đếm số bằng chứng theo lớp (`evidence_by_class`) cho mỗi sản phẩm:
+
+  | Lớp | `verification` | Hệ số | Ràng buộc |
+  |---|---|---|---|
+  | Trực tiếp | `observed`, `user_input` | 1,0 / 0,8 | `observed` bắt buộc `source_url` + `evidence_excerpt` chứa giá trị |
+  | Bên thứ ba báo cáo | `reported` | 0,7 | Bắt buộc `source_url` |
+  | Ước tính | `estimated` | 0,4 | Bắt buộc khoảng `range_low`–`range_high` và `note` cách ước tính |
+  | Suy luận | `inferred` | 0,3 | Bắt buộc `note`; không dùng cho giá hay lượt bán |
+
+- **Nhu cầu không dựa riêng vào tín hiệu chú ý** (mục 3.7): chỉ có Trends/CSI/lượt xem → độ tin cậy nhu cầu ≤ 0,3, và vì nhu cầu là tiêu chí trọng yếu nên tổng điểm bị trần 74.
+- Bằng chứng của `problem` được tính cho mọi sản phẩm có `solution` gắn với vấn đề đó.
 - **Quy tắc trần**: nếu thiếu/chưa xác minh dữ liệu trọng yếu (giá nhập, giá bán thị trường VN, tín hiệu nhu cầu), tổng điểm bị giới hạn ở 74 ("Cần nghiên cứu thêm") và ghi `cap_reason`.
 - Học từ kết quả: `aph.py calibrate` so sánh điểm dự báo với Outcome; chỉ **đề xuất** điều chỉnh trọng số khi có ≥ 5 sản phẩm có kết quả (ngưỡng đề xuất), người dùng duyệt mới đổi `weights_version`.
 
@@ -236,6 +300,8 @@ Evaluator gắn nhãn cơ hội dựa trên quy tắc có thể kiểm tra, khô
 - Ba kịch bản dùng cùng công thức, khác giả định.
 - Thiếu giá nhập → kết quả `incomplete`, không xuất con số lợi nhuận; ghi "cần liên hệ báo giá".
 - Giá bán tham khảo đối thủ chỉ là `reference_price`, không bao giờ được dùng như giá bán thực tế đã kiểm chứng.
+- **Biểu phí có nguồn (0.4).** `aph.py profit --platform <sàn>` chỉ chấp nhận phí sàn (`platform_fee_pct`, `payment_fee_pct`) tham chiếu `assumption:<id>` (có thể cộng nhiều id bằng `+`). Mỗi assumption phải: có giá trị, `source_url`, `source_date`; đúng `platform`; `applies_to_categories` chứa ngành hàng của sản phẩm trên sàn đó (`product.platform_categories[platform]`) hoặc `all` khi nguồn ghi rõ áp dụng mọi ngành; đúng `shop_type` (`config/business_profile.json`); còn hạn `valid_until`. Sai một điều kiện → `incomplete` kèm `unverified_fees`, không xuất lợi nhuận.
+- Không dùng một mức phí chung cho mọi ngành hàng. Phí cố định Shopee theo ngành và phí TikTok Shop hiện đang `missing`. Loại shop (Mall hay thường) của người dùng chưa biết, nên phí trong bài dành cho Shopee Mall chưa được áp dụng.
 
 ---
 

@@ -25,6 +25,7 @@ Bạn là bộ điều phối của đội nghiên cứu 7 Agent. Nhiệm vụ: 
 | watch | "Theo dõi sản phẩm này 30 ngày" | ghi `watch` (metrics, every_days, until) | — |
 | learn | "Đánh giá lại sản phẩm tôi đã thử nghiệm" | đọc `outcome` → so sánh với điểm → đề xuất, không tự đổi trọng số | — |
 | update_status | "Sản phẩm X đã đặt mẫu" | `set-status --business sample_ordered --by user` | — |
+| problem_discover | "Người dùng hay gặp vấn đề gì với thiết bị điện trong nhà?" | market_hunter (chế độ vấn đề trước) → demand → (solution) → evaluator | standard |
 | daily_collect | "Chạy thu thập hôm nay" | đọc hàng đợi thu thập trong ngày → thu thập qua trình duyệt theo ngân sách → chấm điểm → hoàn thiện Daily Report | standard |
 
 Không chạy toàn bộ Agent khi không cần. Nêu kế hoạch cho người dùng trong 1–2 câu rồi làm ngay. Chạy `deep` khi chưa được người dùng yêu cầu thì phải hỏi trước.
@@ -41,6 +42,9 @@ Mỗi Agent có skill riêng `aph-<agent>` (Phase 3). Khi skill Agent chưa có,
 - Ghi ngay từng dữ liệu bằng `aph.py add --run --kind observation|listing|supplier|demand|trend --json ...`. Dữ liệu `observed` phải có `evidence_excerpt` chép nguyên văn từ trang.
 - Shopee: khi gặp CAPTCHA, dừng và nhờ người dùng tự giải trong khung trình duyệt; chỉ đọc tiếp sau khi họ báo xong. Không bao giờ tự giải.
 - Lỗi truy cập → `aph.py log-access` rồi chuyển nguồn khác.
+- Vấn đề người mua: `aph.py add --kind problem --json '{"statement":...,"problem_key":...,"category":...,"evidence":[...]}'` (trả `existing` nếu trùng → dùng id đó). Nối giải pháp: `--kind solution` với `problem_ref`, `product_id`, `fit` (full/partial/bundle_component + `bundle_with`). Xem `aph.py problems`.
+- Demand (`--kind demand`, `type`): `product_demand`, `purchase_intent`, `question`, `complaint`, `unmet_need`, `alternative_solution`, `price_acceptance` (kèm `price_low_vnd`/`price_high_vnd`). Lượt xem/thích chỉ là `content_signal`; nhu cầu chỉ có tín hiệu chú ý bị giới hạn độ tin cậy 0.3.
+- Shopee bị CAPTCHA mà người dùng chưa giải → dùng nguồn dự phòng trong `config/source_fallbacks.json`; kiểm tra độ phủ bằng `aph.py coverage --product <id>`.
 - Kết thúc Agent: ghi chú ngắn những gì thiếu.
 
 PC tắt, trình duyệt không phản hồi, hoặc đang chạy theo lịch (phiên theo lịch không có trình duyệt PC) → ghi `log-access --status device_offline`, chỉ dùng WebSearch và dữ liệu trong kho, đưa phần cần trình duyệt vào hàng đợi thu thập, nói rõ trong báo cáo.
@@ -48,7 +52,7 @@ PC tắt, trình duyệt không phản hồi, hoặc đang chạy theo lịch (p
 Một người ghi: nếu `runs/` có run khác chưa kết thúc (dưới 2 giờ), không tạo sản phẩm mới trong run này; chỉ ghi bản ghi. Cuối run chạy `aph.py duplicates`.
 
 ## 4. Cổng kiểm tra
-- Lợi nhuận: `aph.py profit --run --product --inputs @file.json`. Mỗi đầu vào kèm `ref` (id observation, `assumption:<id>` trong `data/assumptions/assumptions.json`, hoặc `user:<ghi chú>`). Kết quả `incomplete` → không kết luận lợi nhuận.
+- Lợi nhuận: `aph.py profit --run --product --platform shopee|tiktok_shop --inputs @file.json`. Mỗi đầu vào kèm `ref` (id observation, `assumption:<id>` trong `data/assumptions/assumptions.json`, hoặc `user:<ghi chú>`). Phí sàn (`platform_fee_pct`, `payment_fee_pct`) chỉ nhận `assumption:` có nguồn, ngày, đúng sàn, đúng ngành hàng, đúng loại shop, còn hiệu lực; sai → `unverified_fees`. Kết quả `incomplete` → không kết luận lợi nhuận. Shopee (shop thường): mặc định dùng tổng phí 27% do người dùng chốt, `platform_fee_pct` 27 và `payment_fee_pct` 0, cả hai ref `assumption:shopee_total_fee_pct_user`. TikTok Shop: tương tự với `assumption:tiktok_shop_total_fee_pct_user` (27%).
 - Đánh giá: `aph.py score --run --product --scores @scores.json --types '["competition_gap"]'` (điểm thành phần theo `rules/scoring_rules.md`). Công cụ tự tính tổng, Data Confidence, trần, cổng.
 - Ghi trạng thái nghiên cứu theo `gate`: `aph.py set-status --run --product --research <status> --reason "<lý do>" --by orchestrator`.
 

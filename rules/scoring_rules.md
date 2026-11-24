@@ -22,6 +22,8 @@ Không có bằng chứng trong kho cho một tiêu chí → để `"score": nul
 - Tổng: trung bình có trọng số theo trọng số tiêu chí, thang 0–100.
 
 ## Trần điểm
+Nhu cầu chỉ dựa trên Google Trends, lượt xem hoặc lượt thích (tín hiệu chú ý) không được quá mức 1 ở cột demand; công cụ giới hạn độ tin cậy của nhu cầu ở 0.3 trong trường hợp này.
+
 Nếu tiêu chí trọng yếu (demand, competition, profit) có độ tin cậy < 0.5 thì tổng điểm bị giới hạn ở 74 và ghi `cap_reason`.
 
 ## Cổng trạng thái (`aph.py gate`)

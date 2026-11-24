@@ -1,218 +1,182 @@
 # AI PRODUCT HUNTER — IMPLEMENTATION ROADMAP
 
-> Phiên bản: 0.1 · Ngày: 2026-11-24 · Đi kèm: `SYSTEM_ARCHITECTURE.md`
-> Quy ước trạng thái: ✅ xong và đã kiểm thử · 🟡 đang làm · ⬜ chưa làm
+> Phiên bản: 0.4 · Cập nhật: 2026-11-24 11:40 (giờ VN) · Đi kèm: `SYSTEM_ARCHITECTURE.md` v0.4, `PHASE_1_AUDIT.md`
+>
+> **Quy ước trạng thái** (dùng thống nhất trong toàn bộ tài liệu):
+> - ✅ **Hoàn thành, đã kiểm thử**: có kiểm thử tự động hoặc kiểm thử thật, ghi rõ bằng chứng.
+> - 🧪 **Hoàn thành, chưa kiểm thử**: đã viết xong nhưng chưa có kiểm thử chứng minh nó chạy đúng.
+> - ⏳ **Đang chờ người dùng duyệt**: việc của Claude đã xong, cần người dùng bấm duyệt, merge hoặc trả lời.
+> - 🔶 **Một phần**: làm được một phần, phần thiếu ghi rõ.
+> - ⬜ **Chưa làm**.
+>
+> Nguyên tắc: chỉ ghi ✅ khi có kiểm thử; không dùng dữ liệu giả để chứng minh hệ thống chạy được.
 
 ---
 
-## Tổng quan giai đoạn
+## 1. Trạng thái tổng quan
 
-| Phase | Mục tiêu | Trạng thái |
-|---|---|---|
-| 1 | Kiến trúc + kiểm tra môi trường | ✅ |
-| 2 | Core system: kho dữ liệu, công cụ, orchestrator, rules, kiểm thử truy cập nguồn | 🟡 (xong phần code + kiểm thử; chờ duyệt PR và lưu skill) |
-| 3 | 7 Agent (lần lượt, mỗi Agent có kiểm thử thật) | ⬜ |
-| 4 | Báo cáo + dashboard | ⬜ |
-| 5 | Tự động hóa theo lịch | ⬜ |
-| 6 | Kiểm thử tổng thể + báo cáo kiểm thử | ⬜ |
-
-Nguyên tắc: mỗi bước chỉ đánh dấu ✅ khi có kiểm thử thật trên dữ liệu thật; không tạo dữ liệu giả để minh họa.
-
----
-
-## Quyết định cần người dùng trước/đầu Phase 2
-
-| # | Câu hỏi | Đề xuất |
-|---|---|---|
-| D1 | Tạo Git repo (GitHub) cho code/skills/rules? | Có. Người dùng tạo repo trống (ví dụ `ai-product-hunter`), Claude gắn vào dự án |
-| D2 | Shopee: chấp nhận mô hình bán tự động (người dùng tự mở/xác minh trang khi cần) hay bỏ Shopee khỏi thu thập tự động? | Bán tự động + dữ liệu Seller Center của người dùng nếu có |
-| D3 | Có đăng nhập 1688/Taobao trong trình duyệt tích hợp của Claude không? (người dùng tự đăng nhập, Claude không nhập mật khẩu) | Thử Alibaba.com/1688 không đăng nhập trước, quyết định sau kiểm thử |
-| D4 | Thông tin kinh doanh: vốn thử nghiệm tối đa, kênh bán chính, khả năng nhập khẩu (tiểu ngạch/chính ngạch), có shop sẵn chưa | Người dùng cung cấp để Agent 06/07 chấm "Mức độ phù hợp kinh doanh" |
-| D5 | Có mirror báo cáo sang `My Drive` trên PC không? | Tùy chọn, làm ở Phase 4 |
-| D6 | Quan hệ với skill `trend-hunter-dtm` hiện có | Giữ nguyên skill đó (xu hướng nội dung video). Agent 02 mới tập trung xu hướng **sản phẩm**, dùng lại kỹ thuật đọc Google Trends/CSI |
-
-### Câu trả lời của người dùng (2026-11-24)
-
-| # | Trả lời | Ảnh hưởng thiết kế |
-|---|---|---|
-| D1 | Đã tạo GitHub repo trống | Cần link repo và thêm repo vào dự án trong Project settings trước khi commit code |
-| D2 | Đã đăng nhập một tài khoản Shopee trong trình duyệt của Claude | Phase 2.1 kiểm thử lại Shopee khi đã đăng nhập: nếu vẫn bị trang xác minh thì người dùng tự hoàn tất; chỉ đọc trang, số trang mỗi lần chạy có giới hạn, không thao tác trên tài khoản |
-| D3 | Tìm nguồn hàng **trong nước** | Agent 05 ưu tiên nhà phân phối, nhà sản xuất và đại lý sỉ tại Việt Nam; 1688/Alibaba/Taobao chỉ dùng để tham khảo giá gốc và phát hiện sản phẩm, không phải nguồn nhập chính |
-| D4 | Vốn thử nghiệm 10.000.000 đ; kênh chính Shopee và TikTok Shop | `config/business_profile.json`: giới hạn vốn thử nghiệm 10 triệu, nên sản phẩm có MOQ hoặc lô thử nghiệm vượt mức này bị trừ điểm "Mức độ phù hợp kinh doanh" và được gắn cảnh báo |
-
----
-
-## PHASE 2 — CORE SYSTEM
-
-**Mục tiêu:** nền móng chạy được, chưa nghiên cứu phức tạp.
-
-| # | Hạng mục | Sản phẩm | Tiêu chí hoàn thành |
+| Phase | Mục tiêu | Trạng thái | Ghi chú |
 |---|---|---|---|
-| 2.1 | Kiểm thử truy cập nguồn | `docs/SOURCE_ACCESS_MATRIX.md` | Mỗi nguồn (Shopee, TikTok, TikTok CSI, Google Trends, Google, 1688, Alibaba, Taobao, Lazada, Amazon, AliExpress, website nhà sản xuất VN/CN) có kết quả thật: đọc được / cần đăng nhập / anti-bot / lỗi, kèm ngày kiểm tra |
-| 2.2 | Schemas | `schemas/entities.json` (một file, công cụ tự kiểm tra) cho Product, Observation, Listing, Supplier, DemandSignal, ProfitScenario, Assumption, Evaluation, Decision, Outcome, Run, WatchRule | Validate được bằng script |
-| 2.3 | Công cụ `tools/aph.py` | Lệnh: `init`, `new-run`, `match`, `add-product`, `add-obs`, `add-listing`, `add-supplier`, `gate`, `score`, `profit`, `confidence`, `reindex`, `query`, `log-access` | Unit test (`tests/`) với input do test tự sinh trong thư mục tạm, không ghi vào kho thật |
-| 2.4 | Chống trùng lặp | `match` theo function_key + alias + độ tương đồng; `merge_candidate` | Test các ca: trùng tên khác ngôn ngữ, biến thể WiFi/Zigbee, tên gần giống nhưng khác sản phẩm |
-| 2.5 | Rules dùng chung | `rules/research_rules.md` (bằng chứng, xác minh, truy cập nguồn, an toàn), `rules/scoring_rules.md` | Đọc được, được skill tham chiếu |
-| 2.6 | Config | `config/scoring_weights.json` (v1 theo đặc tả), `config/categories.json` (9 nhóm ưu tiên), `config/depth_budgets.json` | `aph.py score` dùng được |
-| 2.7 | Giả định chi phí | `data/assumptions/assumptions.json` | **Chỉ** điền từ nguồn chính thức (biểu phí Shopee/TikTok Shop, đơn vị vận chuyển) có URL + ngày; mục chưa có nguồn để trống và đánh dấu `missing` |
-| 2.8 | Orchestrator | `skills/aph-orchestrator/SKILL.md` | Với 7 câu lệnh mẫu trong đặc tả, sinh ra Research Plan đúng (kiểm thử khô, chưa chạy Agent) |
-| 2.9 | `CLAUDE.md` dự án | Hướng dẫn cho mọi thread: đường dẫn kho, quy tắc, lệnh công cụ | — |
-| 2.10 | Đề xuất lưu skill | Thẻ duyệt `aph-orchestrator` | Người dùng lưu |
-
-**Kiểm thử Phase 2:** chạy `tests/` + một run thật tối thiểu: tạo 1 sản phẩm thật từ một nguồn thật, thêm 2 observation thật, chạy lại để kiểm tra không tạo trùng.
+| 1 | Kiến trúc và kiểm tra môi trường | ✅ | Đã kiểm toán (`PHASE_1_AUDIT.md`), đã kiểm chứng G1–G3 |
+| 2 | Core system | 🔶 | Code, công cụ, rules đã merge (PR #1) và có 44 unit test đạt. Còn thiếu: kiểm thử khô orchestrator (🧪), người dùng lưu skill (⏳), các biểu phí còn `missing` |
+| 2b | Điều chỉnh trước Phase 3 (yêu cầu 2026-11-24 11:17) | ⏳ | Nằm trong PR #2, chờ người dùng duyệt |
+| 3 | 7 Agent, làm lần lượt | ⬜ | Đề xuất bắt đầu bằng Agent 01 Market Hunter, **không** làm đồng loạt |
+| 4 | Báo cáo và dashboard | ⬜ | |
+| 5 | Vận hành bán tự động theo lịch | ⬜ | Lịch cloud đã kiểm chứng: **không** dùng được trình duyệt PC |
+| 6 | Kiểm thử tổng thể | ⬜ | |
 
 ---
 
-## PHASE 3 — RESEARCH MODULES (7 Agent)
+## 2. Quyết định của người dùng (đã có)
 
-Mỗi Agent là `skills/aph-<agent>/SKILL.md` gồm: Mục tiêu · Input · Output · Quy trình · Công cụ · Tiêu chí hoàn thành · Xử lý lỗi. Thứ tự triển khai theo phụ thuộc dữ liệu và độ khả thi:
-
-| Thứ tự | Agent | Lý do thứ tự | Kiểm thử thật |
+| # | Quyết định | Ngày | Ảnh hưởng |
 |---|---|---|---|
-| 3.1 | 01 Market Hunter | Tạo đầu vào cho mọi Agent | Tìm ≥ 10 sản phẩm thật trong nhóm "nhà thông minh", mỗi sản phẩm có nguồn + ngày; phân biệt "mới trên thị trường" và "mới với người nghiên cứu" |
-| 3.2 | 06 Profit Analyst | Thuần tính toán, khả thi cao | Đối chiếu kết quả `aph.py profit` với bảng tính tay độc lập trên 3 bộ số; thiếu giá nhập → `incomplete` |
-| 3.3 | 07 Opportunity Evaluator | Cần sớm để thấy toàn luồng | Điểm + Data Confidence + trần 74 hoạt động đúng; nhãn 5 dạng cơ hội |
-| 3.4 | 02 Trend Hunter | Phụ thuộc Google Trends/TikTok qua trình duyệt | ≥ 2 mốc thời gian cho mỗi kết luận; phân loại Emerging→Declining |
-| 3.5 | 05 Supplier Hunter | Phụ thuộc kết quả kiểm thử 1688/Alibaba | ≥ 3 nhà cung cấp thật cho 1 sản phẩm, hoặc báo cáo rõ nguồn nào bị chặn |
-| 3.6 | 04 Competitor Analyst | Khó nhất do Shopee anti-bot | Theo mô hình đã chọn ở D2; ghi đầy đủ `access_log` |
-| 3.7 | 03 Demand Analyst | Cần đánh giá/bình luận, phụ thuộc 04 và nguồn cộng đồng | Cụm nhu cầu/phàn nàn có ≥ 3 nguồn độc lập |
-| 3.8 | Tích hợp | Deep-dive 1 sản phẩm thật end-to-end (ví dụ cảm biến rò rỉ nước) | Mọi nhận định có trích dẫn; không số liệu không nguồn |
+| D1 | Repo GitHub `lengockhoa90/ai_product_hunter` | 2026-11-24 | Code/skills/rules ở repo, dữ liệu ở `/mnt/project-files/ai-product-hunter/data` |
+| D2 | Shopee: người dùng đã đăng nhập trong trình duyệt Claude; **tự giải CAPTCHA** | 2026-11-24 | Shopee chỉ đọc trong phiên thu thập có người |
+| D3 | Tìm nguồn hàng **trong nước** | 2026-11-24 | 1688/Alibaba chỉ dùng tham khảo giá gốc |
+| D4 | Vốn thử nghiệm 10.000.000 đ; kênh chính Shopee + TikTok Shop | 2026-11-24 | `config/business_profile.json` |
+| D5 | Vận hành **bán tự động** | 2026-11-24 | Lịch cloud: WebSearch, chấm điểm, báo cáo, hàng đợi; thu thập trình duyệt trong thread người dùng mở |
+| D6 | Cho phép thêm trends.google.com, www.alibaba.com, s.1688.com vào mạng cloud | 2026-11-24 | Đã thử, đều bị chặn chống bot; 3 host vẫn trong danh sách, không dùng |
+| D7 | Thêm Problem-based Discovery, nâng Demand/Confidence/Profit, nguồn thay thế Shopee; làm Agent 01 trước | 2026-11-24 | Mục 4 và mục 5 |
 
-Mỗi skill được đề xuất cho người dùng lưu sau khi kiểm thử đạt.
+**Câu hỏi còn mở cho người dùng:**
+- Q1. Shop Shopee và TikTok Shop của anh là **Mall** hay **shop thường**? Biểu phí khác nhau, nên khi chưa biết thì phí chưa được áp dụng.
+- Q2. Lưu skill `aph-orchestrator` trên thẻ đề xuất. Lần chạy theo lịch lúc 11:06 cho thấy skill chưa được lưu.
 
 ---
 
-## PHASE 4 — REPORTING
+## 3. PHASE 2 — CORE SYSTEM (chi tiết trạng thái)
 
-| # | Hạng mục | Tiêu chí |
+| # | Hạng mục | Trạng thái | Bằng chứng / phần còn thiếu |
+|---|---|---|---|
+| 2.1 | Kiểm thử truy cập nguồn | ✅ | `docs/SOURCE_ACCESS_MATRIX.md` (kiểm thử thật 2026-11-24). Chưa thử: Taobao, Tiki, web TikTok Shop, diễn đàn VN, trang Google Trends mới |
+| 2.2 | Schemas `schemas/entities.json` | ✅ | Công cụ kiểm tra mọi bản ghi theo schema; test `TestSourceRules` |
+| 2.3 | `tools/aph.py` | ✅ | Lệnh: `init`, `new-run`, `finish-run`, `match`, `add-product`, `relate`, `add`, `log-access`, `profit`, `confidence`, `score`, `gate`, `set-status`, `show`, `list`, `duplicates`, `reindex`, `problems`*, `coverage`* (*thêm ở 2b) |
+| 2.4 | Chống trùng lặp | ✅ | Test trùng tên khác ngôn ngữ, biến thể WiFi/Zigbee (trả `needs_review`, không tự gộp), tên khác hẳn. Run thật: thêm lại sản phẩm bằng tên en/zh thì nhận ra sản phẩm cũ |
+| 2.5 | Rules | ✅ | `rules/research_rules.md`, `rules/scoring_rules.md` |
+| 2.6 | Config | ✅ | Trọng số v1, độ tin cậy v2, danh mục, ngân sách độ sâu, hồ sơ kinh doanh, nguồn thay thế |
+| 2.7 | Biểu phí có nguồn | 🔶 | Có nguồn: Phí Xử Lý Giao Dịch Shopee 6% và Voucher Xtra 5,5% (bài dành cho **Shopee Mall**, ngày 14/05/2026). `missing`: phí cố định Shopee theo ngành hàng, toàn bộ phí TikTok Shop, phí cho shop thường |
+| 2.8 | Skill `aph-orchestrator` | 🧪 + ⏳ | Đã viết; **chưa kiểm thử khô** với 7 câu lệnh mẫu; chờ người dùng lưu skill |
+| 2.9 | `CLAUDE.md` | ✅ | Được nạp khi repo có trong phiên (lần chạy theo lịch thấy repo) |
+| 2.10 | Run thật tối thiểu | ✅ | 1 sản phẩm thật (cảm biến rò rỉ nước Zigbee), 2 observation, 2 NCC tham khảo, 1 lỗi CAPTCHA Shopee. 2 observation này ghi trước khi có quy tắc `evidence_excerpt` |
+| 2.11 | Sửa theo kiểm toán (G4–G6) | ✅ | Kiến trúc v0.3, `evidence_excerpt` (test `TestEvidenceExcerpt`), sửa hiệu năng `list` (test 2.000 sản phẩm) |
+
+---
+
+## 4. PHASE 2b — ĐIỀU CHỈNH TRƯỚC PHASE 3 (yêu cầu 2026-11-24 11:17)
+
+| # | Yêu cầu | Đã làm | Trạng thái |
+|---|---|---|---|
+| R1 | Problem-based Opportunity Discovery | Kiến trúc mục 3.6. Bản ghi `problem` (chống trùng theo `problem_key`/độ giống câu) và `solution` (full/partial/bundle_component). Bằng chứng gắn `problem_ref` được tính cho mọi sản phẩm giải quyết vấn đề đó. Lệnh `aph.py problems` | ✅ logic (test `TestProblems`) · ⬜ chưa chạy với dữ liệu thật (làm ở Agent 01) |
+| R2 | Demand Analyst theo vấn đề | Kiến trúc mục 3.7: 8 loại tín hiệu (thêm `question`, `alternative_solution`, `price_acceptance`), `demand` gắn được với `problem_ref` | ✅ schema/logic · ⬜ skill Agent 03 chưa viết |
+| R3 | Data Confidence 4 lớp, không dựa riêng vào Trends/lượt xem | Kiến trúc mục 4.4. `confidence.json` v2: lớp trực tiếp / bên thứ ba / ước tính / suy luận, đếm theo lớp. Chỉ có tín hiệu chú ý thì độ tin cậy nhu cầu ≤ 0,3. `listing_count` không còn tính là nhu cầu | ✅ (test `TestDemandNotAttentionOnly`). Trên dữ liệu thật: độ tin cậy nhu cầu của cảm biến rò rỉ nước giảm từ 0,727 xuống **0,3** (`attention_only=true`), Data Confidence từ 37,9 xuống 29,4 |
+| R4 | Profit chỉ dùng biểu phí có nguồn, có ngày, đúng ngành | Kiến trúc mục 4.5. `aph.py profit --platform` kiểm tra nguồn, ngày, sàn, ngành hàng, loại shop, hạn; sai thì `incomplete` + `unverified_fees` | ✅ (test `TestFeeVerification`). Với dữ liệu hiện có, mọi phép tính lợi nhuận đều sẽ ra `incomplete` cho tới khi có phí cố định theo ngành và trả lời Q1. Đây là kết quả đúng mong muốn |
+| R5 | Nhiều nguồn thay thế Shopee | Kiến trúc mục 3.8. `config/source_fallbacks.json`, lệnh `aph.py coverage` | ✅ (test `TestCoverage`). Trên dữ liệu thật: chỉ "chú ý" và "nguồn cung" đủ phủ; giá VN, nhu cầu VN chưa có; Shopee ghi nhận `captcha` |
+| R6 | Đồng bộ trạng thái tài liệu | Roadmap viết lại với quy ước trạng thái mới; sửa tên lệnh `aph.py` cho khớp code; bỏ `merge_candidate` (code dùng `needs_review`) | ✅ |
+| R7 | Cập nhật tài liệu | `SYSTEM_ARCHITECTURE.md` v0.4, roadmap này | ⏳ chờ duyệt PR #2 |
+
+Tương thích: không đổi tên hay xoá trường nào đã có. `product_id` của `observation`/`demand` chuyển từ bắt buộc sang "cần `product_id` hoặc `problem_ref`". 29 test cũ vẫn đạt; tổng 44 test đạt.
+
+---
+
+## 5. PHASE 3 — 7 AGENT, LẦN LƯỢT
+
+Mỗi Agent là `skills/aph-<agent>/SKILL.md` gồm: Mục tiêu · Input · Output · Quy trình · Công cụ · Tiêu chí hoàn thành · Xử lý lỗi. **Làm từng Agent, kiểm thử thật xong mới sang Agent sau.**
+
+| Thứ tự | Agent | Trạng thái | Tiêu chí kiểm thử thật |
+|---|---|---|---|
+| 3.1 | **01 Market Hunter** (2 chế độ: theo danh mục và problem-first) | ⬜ **Đề xuất làm tiếp theo** | Xem mục 5.1 |
+| 3.2 | 06 Profit Analyst | ⬜ | Lấy được ít nhất 1 biểu phí cố định theo ngành có nguồn; `profit` đúng với bảng tính tay; thiếu phí thì `incomplete` |
+| 3.3 | 07 Opportunity Evaluator | ⬜ | Điểm, Data Confidence, trần 74, nhãn 5 dạng cơ hội cho các sản phẩm của 3.1 |
+| 3.4 | 03 Demand Analyst | ⬜ | Với 1 vấn đề thật: ≥ 3 nguồn độc lập; có tín hiệu ngoài tín hiệu chú ý |
+| 3.5 | 02 Trend Hunter | ⬜ | ≥ 2 mốc thời gian, phân loại Emerging→Declining; chuyển sang trang Google Trends mới |
+| 3.6 | 05 Supplier Hunter | ⬜ | ≥ 3 NCC trong nước có giá, hoặc ghi rõ "cần báo giá" |
+| 3.7 | 04 Competitor Analyst | ⬜ | ≥ 2 nền tảng cho giá/cạnh tranh VN; Shopee khi người dùng giải CAPTCHA |
+| 3.8 | Tích hợp: 1 deep-dive thật | ⬜ | Đo thời gian và số trang (G7); mọi nhận định có trích dẫn |
+
+### 5.1 Đề xuất chi tiết: Agent 01 Market Hunter
+
+| Mục | Nội dung |
+|---|---|
+| Mục tiêu | Phát hiện sản phẩm **và vấn đề khách hàng** đáng nghiên cứu; không chỉ liệt kê hàng bán chạy |
+| Chế độ A: theo danh mục | Từ danh mục ưu tiên (`config/categories.json`) → sản phẩm mới ở thị trường nguồn (1688/Alibaba/website nhà sản xuất, WebSearch) → kiểm tra mức độ có mặt tại VN (Lazada, Google VN, TikTok; Shopee nếu người dùng giải CAPTCHA) |
+| Chế độ B: problem-first | Từ một tình huống ("rò rỉ nước khi đi vắng") → tìm câu hỏi/phàn nàn trên nguồn VN → ghi `problem` → tìm giải pháp hiện có và khoảng trống → ghi `solution`, kể cả bộ sản phẩm |
+| Input | Danh mục hoặc tình huống, độ sâu (`quick` mặc định), số lượng mong muốn |
+| Output | `product` (chống trùng), `problem`, `solution`, `observation` có `evidence_excerpt`, `new_to_market_evidence`, `log-access` cho nguồn bị chặn |
+| Công cụ | Trình duyệt Claude trên PC (trong thread), WebSearch, `aph.py` |
+| Tiêu chí hoàn thành | Chế độ A: ≥ 10 sản phẩm thật nhóm nhà thông minh, mỗi sản phẩm có ≥ 1 nguồn + ngày + đoạn trích, phân biệt "mới trên thị trường" và "mới với người nghiên cứu". Chế độ B: ≥ 1 vấn đề thật có ≥ 3 nguồn, ≥ 2 giải pháp được ghép. Chạy lại lần 2 không tạo bản ghi trùng |
+| Xử lý lỗi | CAPTCHA/đăng nhập → dừng nguồn đó, `log-access`, dùng nguồn trong `source_fallbacks.json`; PC không liên kết → chỉ chạy phần WebSearch và báo rõ |
+| Kiểm thử trước khi viết skill | Thử truy cập diễn đàn VN và hỏi đáp Lazada (nguồn vấn đề chưa kiểm thử) |
+| Cần người dùng | PC bật và đang liên kết khi chạy thử; giải CAPTCHA Shopee nếu muốn có Shopee trong lần thử |
+
+---
+
+## 6. PHASE 4 — BÁO CÁO
+
+| # | Hạng mục | Trạng thái |
 |---|---|---|
-| 4.1 | Generator Daily Report | Dựng từ kho; có mục "nguồn không truy cập được" |
-| 4.2 | Generator Weekly Report | Top 10 có điểm + Data Confidence + thay đổi so với tuần trước |
-| 4.3 | Template Deep Research 14 mục | Trích dẫn `[obs_id]` → URL + ngày |
-| 4.4 | Product Watchlist + Opportunity Ranking | Artifact dashboard đọc dữ liệu đã xuất |
-| 4.5 | Nhập trạng thái kinh doanh & Outcome | Người dùng cập nhật bằng câu lệnh tự nhiên ("sản phẩm X đã đặt mẫu") |
+| 4.1 | Daily Report (từ kho, có mục "không truy cập được" và "không có dữ liệu Shopee") | ⬜ |
+| 4.2 | Weekly Report (Top 10, điểm + Data Confidence, thay đổi so với tuần trước) | ⬜ |
+| 4.3 | Deep Research 14 mục, trích dẫn `[obs_id]` → URL + ngày | ⬜ |
+| 4.4 | Watchlist + Opportunity Ranking + danh sách vấn đề (Artifact) | ⬜ |
+| 4.5 | Cập nhật trạng thái kinh doanh và Outcome bằng câu lệnh tự nhiên | 🧪 (`set-status` có, chưa có skill) |
 
 ---
 
-## PHASE 5 — AUTOMATION (bán tự động, theo quyết định 2026-11-24)
+## 7. PHASE 5 — VẬN HÀNH BÁN TỰ ĐỘNG
 
-Chỉ bắt đầu khi người dùng đồng ý tạo scheduled task. Đã kiểm chứng (PHASE_1_AUDIT mục I): lịch cloud **không** dùng được trình duyệt PC, nên lịch chỉ làm WebSearch, chấm điểm, báo cáo và lập hàng đợi thu thập; thu thập qua trình duyệt chạy trong thread người dùng mở (`daily_collect`).
-
-| # | Job | Tiêu chí |
+| # | Việc | Trạng thái |
 |---|---|---|
-| 5.1 | Kiểm thử: scheduled run có gọi được trình duyệt trên PC không | ✅ Đã kiểm chứng 2026-11-24: **không** |
-| 5.2 | daily-discovery | Chạy 3 ngày liên tiếp không lỗi chặn, có Daily Report |
-| 5.3 | watchlist-refresh | Thêm observation mới, không tạo bản ghi trùng |
-| 5.4 | weekly-review | Weekly Report đúng hạn |
-| 5.5 | deep-dive-on-trigger | Đề xuất deep-dive, chỉ chạy khi người dùng duyệt |
-| 5.6 | ~~Dự phòng Cowork desktop~~ | Bỏ: tác vụ trên PC không ghi được vào thư mục dự án |
-| 5.7 | Hàng đợi thu thập `queue/YYYY-MM-DD.json` + lệnh `daily_collect` | Lịch tạo hàng đợi; thread người dùng xử lý; mục chưa xử lý được chuyển sang ngày sau |
+| 5.1 | Kiểm thử lịch cloud có dùng được trình duyệt PC không | ✅ Không (lần chạy 2026-11-24 11:06, task thử đã xoá) |
+| 5.2 | Lịch `daily-prep` (WebSearch, chấm lại điểm, Daily Report phần kho, hàng đợi) | ⬜ cần người dùng đồng ý tạo lịch |
+| 5.3 | Phiên `daily_collect` trong thread người dùng mở | ⬜ |
+| 5.4 | Lịch `weekly-review` | ⬜ |
+| 5.5 | Xử lý lỗi lịch: heartbeat, chống chạy chồng, chạy lại 1 lần, báo khi trượt 2 lần | ⬜ (đã thiết kế ở kiến trúc mục 6) |
+| 5.6 | ~~Dự phòng Cowork desktop~~ | Bỏ (tác vụ trên PC không ghi được vào thư mục dự án) |
 
 ---
 
-## PHASE 6 — TESTING
+## 8. PHASE 6 — KIỂM THỬ TỔNG THỂ
 
-Báo cáo `docs/TEST_REPORT.md` với kết quả thật cho từng mục:
-tìm sản phẩm · xác minh dữ liệu · phân tích đối thủ · tìm nhà cung cấp · độ chính xác lợi nhuận · phối hợp Agent · lưu/cập nhật · phát hiện trùng lặp · tạo báo cáo · vận hành theo lịch.
-Đối chiếu 12 tiêu chí nghiệm thu (mục XIV của đặc tả), mục nào chưa đạt ghi rõ lý do.
+`docs/TEST_REPORT.md` với kết quả thật cho: tìm sản phẩm, tìm vấn đề, xác minh dữ liệu, đối thủ, nhà cung cấp, lợi nhuận, phối hợp Agent, lưu/cập nhật, trùng lặp, báo cáo, vận hành theo lịch. Đối chiếu 12 tiêu chí nghiệm thu (mục XIV của đặc tả).
 
 ---
 
-## Cấu trúc thư mục đề xuất
+## 9. Kiểm toán và việc còn mở
 
-Code/skills/rules nằm trong Git repo (khi có) — bản làm việc được đồng bộ vào thư mục dự án. Dữ liệu và báo cáo luôn nằm trong thư mục dự án dùng chung.
+| # | Việc (theo `PHASE_1_AUDIT.md`) | Trạng thái |
+|---|---|---|
+| G1 | Kiểm thử lịch chạy | ✅ |
+| G2 | Truy cập trực tiếp từ cloud | ✅ (bị chặn) |
+| G3 | Phương án Shopee | ✅ (người dùng tự giải CAPTCHA) |
+| G4 | Kiến trúc v0.3 | ✅ |
+| G5 | `evidence_excerpt` | ✅ |
+| G6 | Hiệu năng `list` | ✅ |
+| G7 | Đo chi phí một deep-dive thật | ⬜ (Phase 3.8) |
+| G8 | Kiểm thử Taobao, Tiki, web TikTok Shop, Google Trends trang mới, diễn đàn VN | ⬜ (diễn đàn VN làm trước Agent 01) |
+
+---
+
+## 10. Cấu trúc thư mục (hiện tại)
 
 ```
-ai-product-hunter/                    # Git repo (D1) + bản sao trong /mnt/project-files/ai-product-hunter/
-├── CLAUDE.md                         # hướng dẫn cho mọi phiên Claude
+ai_product_hunter/                     # GitHub repo
+├── CLAUDE.md
 ├── README.md
 ├── docs/
-│   ├── SYSTEM_ARCHITECTURE.md        # ✅ Phase 1
-│   ├── IMPLEMENTATION_ROADMAP.md     # ✅ Phase 1
-│   ├── SOURCE_ACCESS_MATRIX.md       # Phase 2
-│   └── TEST_REPORT.md                # Phase 6
-├── skills/
-│   ├── aph-orchestrator/SKILL.md
-│   ├── aph-market-hunter/SKILL.md
-│   ├── aph-trend-hunter/SKILL.md     # khác skill trend-hunter-dtm (nội dung video)
-│   ├── aph-demand-analyst/SKILL.md
-│   ├── aph-competitor-analyst/SKILL.md
-│   ├── aph-supplier-hunter/SKILL.md
-│   ├── aph-profit-analyst/SKILL.md
-│   └── aph-opportunity-evaluator/SKILL.md
-├── rules/
-│   ├── research_rules.md
-│   └── scoring_rules.md
-├── schemas/entities.json             # định nghĩa trường cho mọi bản ghi
-├── config/
-│   ├── scoring_weights.json
-│   ├── categories.json
-│   ├── confidence.json
-│   ├── business_profile.json
-│   └── depth_budgets.json
-├── tools/
-│   ├── aph.py                        # CLI duy nhất: dedup, obs, score, profit, confidence, gate, reindex
-│   └── report.py                     # dựng Daily/Weekly/Deep từ kho
-├── templates/
-│   ├── daily_report.md
-│   ├── weekly_report.md
-│   └── deep_research_report.md
-└── tests/
+│   ├── SYSTEM_ARCHITECTURE.md         # v0.4
+│   ├── IMPLEMENTATION_ROADMAP.md      # v0.4
+│   ├── SOURCE_ACCESS_MATRIX.md
+│   └── PHASE_1_AUDIT.md
+├── skills/aph-orchestrator/SKILL.md   # các skill Agent thêm lần lượt ở Phase 3
+├── rules/{research_rules,scoring_rules}.md
+├── schemas/entities.json
+├── config/{scoring_weights,confidence,categories,depth_budgets,business_profile,source_fallbacks}.json
+├── tools/aph.py
+└── tests/test_aph.py
 
-/mnt/project-files/ai-product-hunter/  # chỉ ở thư mục dự án (không commit)
-├── data/
-│   ├── products/
-│   ├── records/YYYY/MM/<run_id>.jsonl
-│   ├── runs/
-│   ├── assumptions/
-│   └── index.sqlite                  # dựng lại được
-└── reports/
-    ├── daily/
-    ├── weekly/
-    └── deep/
+/mnt/project-files/ai-product-hunter/  # không commit
+├── data/{products,records/YYYY/MM,runs,assumptions}/ + index.sqlite
+├── audit/                             # kết quả kiểm thử lịch chạy
+└── reports/{daily,weekly,deep}/       # Phase 4
 ```
-
-`templates/`, `tools/report.py` và các skill Agent được tạo ở Phase 3–4 khi có nội dung thật.
-
----
-
-## Thứ tự làm tiếp theo (đề xuất)
-
-1. Người dùng trả lời D1–D4.
-2. Phase 2.1: kiểm thử truy cập từng nguồn → biết chính xác Agent nào khả thi.
-3. Phase 2.2–2.7: schemas, `aph.py`, rules, config, tests.
-4. Phase 2.8: orchestrator + đề xuất lưu skill.
-5. Phase 3 theo thứ tự 01 → 06 → 07 → 02 → 05 → 04 → 03, rồi deep-dive end-to-end một sản phẩm thật.
-
----
-
-## Kết quả Phase 2 (2026-11-24)
-
-| # | Hạng mục | Trạng thái | Bằng chứng |
-|---|---|---|---|
-| 2.1 | Kiểm thử truy cập nguồn | ✅ | `docs/SOURCE_ACCESS_MATRIX.md`. Shopee bị CAPTCHA kể cả khi đã đăng nhập; TikTok, TikTok CSI, Google Trends (đọc được bảng số), Google VN, Lazada, Alibaba, 1688 (GBK) đều đọc được |
-| 2.2 | Schemas | ✅ | `schemas/entities.json` |
-| 2.3–2.4 | `tools/aph.py` + chống trùng lặp | ✅ | 24 unit test đạt (`tests/test_aph.py`), gồm tính lợi nhuận đối chiếu số tính tay |
-| 2.5 | Rules | ✅ | `rules/research_rules.md`, `rules/scoring_rules.md` |
-| 2.6 | Config | ✅ | trọng số v1, độ tin cậy, danh mục, ngân sách độ sâu, hồ sơ kinh doanh (10 triệu, Shopee + TikTok, nguồn trong nước) |
-| 2.7 | Giả định chi phí | 🟡 | Có: Phí Xử Lý Giao Dịch Shopee 6% và Voucher Xtra 5,5% (tối đa 50.000 đ) từ banhang.shopee.vn/edu/article/21087 (bài cho Shopee Mall, ngày 14/05/2026). Thiếu: phí cố định theo ngành hàng, phí TikTok Shop → lấy ở deep-dive đầu tiên |
-| 2.8 | Orchestrator | ✅ (chờ người dùng lưu skill) | `skills/aph-orchestrator/SKILL.md` |
-| 2.9 | `CLAUDE.md` | ✅ | |
-| Run thật | ✅ | `run_20261124…`: 1 sản phẩm (cảm biến rò rỉ nước Zigbee), 2 observation, 2 NCC tham khảo, 1 lỗi Shopee CAPTCHA; thêm lại bằng tên khác (en/zh) → nhận ra sản phẩm cũ, không tạo trùng. Data Confidence = 37,9 (thiếu lợi nhuận, khác biệt, phù hợp) |
-
-Phát hiện từ run thật: Google Trends cho "cảm biến rò rỉ nước" tại VN gần như bằng 0 suốt 12 tháng (so với "công tắc thông minh" trung bình 56). Đây là dữ liệu quan sát, chưa phải kết luận về sản phẩm.
-
----
-
-## Điều chỉnh sau kiểm toán (2026-11-24, theo PHASE_1_AUDIT.md)
-
-| Mục | Trạng thái |
-|---|---|
-| G1 Kiểm thử lịch chạy | ✅ Lịch cloud không có trình duyệt/thư mục PC |
-| G2 Truy cập trực tiếp từ cloud | ✅ Bị chặn chống bot (Trends 429, Alibaba/1688 punish) |
-| G3 Shopee | ✅ Người dùng tự giải CAPTCHA trong phiên thu thập |
-| G4 Kiến trúc v0.3 | ✅ Bán tự động, bỏ dự phòng Cowork, một người ghi, phân tầng theo dõi, xử lý lỗi lịch, tách việc Demand/Competitor |
-| G5 `evidence_excerpt` | ✅ Bắt buộc với `observed`, công cụ kiểm tra con số nằm trong đoạn trích. 2 observation ghi trước quy tắc này (run kiểm thử Phase 2) không có đoạn trích |
-| G6 Lỗi hiệu năng `list` | ✅ Quét kho một lần; test 2.000 sản phẩm / 50.000 bản ghi |
-| G7 Đo chi phí một deep-dive thật | ⬜ Làm ở Phase 3 |
-| G8 Kiểm thử Taobao, Tiki, web TikTok Shop, Google Trends trang mới | ⬜ |
