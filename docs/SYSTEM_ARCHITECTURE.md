@@ -1,6 +1,6 @@
 # AI PRODUCT HUNTER — SYSTEM ARCHITECTURE
 
-> Phiên bản: 0.4 (bổ sung Problem-based Discovery, nâng cấp Demand Analyst, Data Confidence, Profit Analyst, cơ chế kết hợp nguồn) · Ngày: 2026-11-24
+> Phiên bản: 0.5 (0.4: Problem-based Discovery, Demand Analyst, Data Confidence, Profit Analyst, kết hợp nguồn; 0.5: Agent 07 chấm điểm v2 theo model, Risk Gates, `variant_link`) · Ngày: 2026-11-24
 > Trạng thái từng thành phần: xem bảng trạng thái ở đầu `IMPLEMENTATION_ROADMAP.md`.
 > Thay đổi so với 0.1: gộp bản ghi theo run vào `records/` (0.2); mô hình vận hành bán tự động, bỏ dự phòng Cowork desktop, quy tắc một người ghi, phân tầng theo dõi, xử lý lỗi lịch, bắt buộc `evidence_excerpt`, tách việc Demand/Competitor (0.3); mục 3.6–3.8, 4.2, 4.4, 4.5 (0.4).
 > Phạm vi: kiến trúc tổng thể, phối hợp Agent, mô hình dữ liệu, lưu trữ, lập lịch, giới hạn kỹ thuật.
@@ -262,7 +262,8 @@ Vấn đề (problem) ──► Nhu cầu theo vấn đề (demand, problem_ref)
 | **Solution** (0.4) | `problem_ref`, `product_id`, `fit` (full/partial/bundle_component), `bundle_with[]`, `rationale`, `evidence[]` |
 | **ProfitScenario** | `product_id`, `scenario` (conservative/base/optimistic), `inputs{}` mỗi input kèm obs_id hoặc assumption_id, `outputs{}` (gross, net, margin, breakeven_units, test_capital), `confidence` |
 | **Assumption** | `id`, tên chi phí, `value`, `platform`, `applies_to_categories[]` (tên ngành hàng của sàn, hoặc `all` khi nguồn ghi rõ), `shop_type` (mall/normal/all), `source_url`, `source_date`, `valid_until`, `status` (`missing` khi chưa có nguồn) |
-| **Evaluation** | `eval_id`, `product_id`, `scores{7 tiêu chí}`, `total`, `data_confidence`, `opportunity_types[]`, `cap_reason`, `weights_version`, `evaluated_at` |
+| **Evaluation** | v2 (Agent 07, mục 4.6): `product_id`, `variant_key`, `groups{5 nhóm: score\|null, reason, evidence_ids, sources, confidence, basis, scope}`, `total`, `weight_coverage`, `data_confidence`, `gates{5}`, `status`, `suggested_research_status`, `conditions`, `strengths`, `weaknesses`, `risks`, `missing_data`, `next_actions`, `identity`, `input_snapshot`. v1 (lịch sử): `scores{7 tiêu chí}`, `cap_reason` |
+| **VariantLink** (0.5) | `product_id`, `variant_key`, `target` (id bản ghi cũ), `reason`, `evidence_excerpt` (nguyên văn trong bản ghi đích). Gán model cho bản ghi cũ mà không sửa nó |
 | **Decision** | quyết định của người dùng + lý do + thời điểm |
 | **Outcome** | kết quả thử nghiệm: số lượng bán, doanh thu, lợi nhuận thực, chi ads, tỷ lệ hoàn, phản hồi, kỳ báo cáo |
 | **Run** | `run_id`, loại (manual/scheduled), yêu cầu gốc, kế hoạch, agent đã chạy, `access_log[]`, chi phí ước tính, kết quả |
@@ -273,7 +274,7 @@ Vấn đề (problem) ──► Nhu cầu theo vấn đề (demand, problem_ref)
 1. `function_key` chuẩn hóa = danh mục + chức năng chính + giao thức/thông số phân biệt (ví dụ `water-leak-sensor|zigbee`), viết thường, bỏ dấu.
 2. Trước khi tạo Product mới: `aph.py match` tìm theo `function_key`, alias (vi/en/zh), và độ tương đồng tên.
 3. Trùng khớp chắc chắn → gắn observation vào sản phẩm cũ. Nghi ngờ → tạo bản ghi `merge_candidate` để người dùng/Evaluator xác nhận; **không tự gộp** khi không chắc.
-4. Biến thể (ví dụ WiFi vs Zigbee) là Product riêng có quan hệ `variant_of`.
+4. Biến thể (ví dụ WiFi vs Zigbee): **thực tế từ 0.5** là một Product cấp chức năng, mỗi model mang `variant_key` trên bản ghi (listing, supplier, observation, demand, max_cost, profit), hoặc được gán sau qua `variant_link`. Mọi phép tính giá, trần giá nhập, lợi nhuận và đánh giá chạy theo `product_id + variant_key`, không gộp model. Product riêng + `variant_of` vẫn dùng được khi hai model khác hẳn chức năng.
 
 ### 4.4 Chấm điểm và Data Confidence
 
@@ -293,6 +294,18 @@ Vấn đề (problem) ──► Nhu cầu theo vấn đề (demand, problem_ref)
 - Bằng chứng của `problem` được tính cho mọi sản phẩm có `solution` gắn với vấn đề đó.
 - **Quy tắc trần**: nếu thiếu/chưa xác minh dữ liệu trọng yếu (giá nhập, giá bán thị trường VN, tín hiệu nhu cầu), tổng điểm bị giới hạn ở 74 ("Cần nghiên cứu thêm") và ghi `cap_reason`.
 - Học từ kết quả: `aph.py calibrate` so sánh điểm dự báo với Outcome; chỉ **đề xuất** điều chỉnh trọng số khi có ≥ 5 sản phẩm có kết quả (ngưỡng đề xuất), người dùng duyệt mới đổi `weights_version`.
+
+### 4.6 Agent 07: chấm điểm v2 và Risk Gates (0.5)
+
+Chi tiết và lý do: `docs/AGENT_07_AUDIT_DESIGN.md` mục 7 (anh Khoa duyệt 2026-11-24). Config: `config/scoring_weights_v2.json`. Lệnh: `aph.py evaluate`, `eval-diff`, `ranking`, `eval-report`. Skill: `dtm-opportunity-evaluator`.
+
+- Đơn vị: `product_id + variant_key`. 5 nhóm 0–100: Nhu cầu 25, Xu hướng 15, Cạnh tranh 20, Nhà cung cấp 15, Tài chính 25. Công cụ tính tất cả; AI chỉ được chỉnh Nhu cầu/Cạnh tranh ±10 trong trần nhóm, có bằng chứng.
+- Nhóm thiếu dữ liệu = `null`, bị loại khỏi tổng; điểm tổng chuẩn hóa trên phần có dữ liệu và luôn đi kèm `weight_coverage`.
+- Mỗi nhóm ghi `basis`: `observed` (dữ liệu thực tế), `estimated` (ví dụ trần giá nhập, tối đa 50 điểm), `ai_judgment`; `scope`: model hay cấp sản phẩm (xu hướng, tìm kiếm, vấn đề khách hàng).
+- Risk Gates: Nhu cầu, Nhà cung cấp, Tài chính, Data Confidence (≥ 60), Product Identity. Trạng thái GO / CONDITIONAL GO / NEED MORE DATA / NO GO theo Gate trước, điểm sau; GO cần mọi Gate đạt, điểm ≥ 75, `weight_coverage` ≥ 80%.
+- Product Identity: bản ghi theo model khác `variant_key` bị loại; chưa gán model cũng bị loại; model < 3 tin đăng, giá trải rộng (P75/P25 > 1,4) hoặc NCC chưa gán model → Gate chưa đủ.
+- Append-only: mỗi lần chạy thêm bản ghi `evaluation` mới với `input_snapshot` (id + thời điểm đầu vào); `eval-diff` so sánh hai lần và chỉ ra bản ghi mới/bị rút lại gây thay đổi.
+- Chấm điểm v1 (`aph.py score`, 7 tiêu chí, mục 4.4) giữ nguyên để đọc lịch sử.
 
 ### 4.5 Lợi nhuận
 

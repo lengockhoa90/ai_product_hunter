@@ -1,0 +1,72 @@
+{
+  "version": "v2",
+  "source": "Anh Khoa duyệt 2026-11-24 15:27 (docs AGENT_07_AUDIT_DESIGN.md mục 7). v1 (scoring_weights.json) giữ nguyên cho lịch sử.",
+  "groups": {
+    "demand":      {"label": "Nhu cầu thị trường", "weight": 25},
+    "trend":       {"label": "Xu hướng",           "weight": 15},
+    "competition": {"label": "Cạnh tranh",         "weight": 20},
+    "supplier":    {"label": "Nhà cung cấp",       "weight": 15},
+    "financial":   {"label": "Hiệu quả tài chính", "weight": 25}
+  },
+  "status_rules": {
+    "go_min_score": 75,
+    "go_min_weight_coverage": 80,
+    "min_data_confidence": 60,
+    "max_null_groups": 1,
+    "no_go_low_score": 50,
+    "no_go_low_score_min_coverage": 80
+  },
+  "research_status_map": {"GO": "qualified_opportunity", "CONDITIONAL_GO": "research_more", "NEED_MORE_DATA": "research_more", "NO_GO": "rejected"},
+  "demand": {
+    "_note": "Ngưỡng khởi đầu, cần hiệu chỉnh khi có kết quả kinh doanh thật. Nhãn 'đã bán' Lazada là lũy kế, không phải tốc độ bán.",
+    "attention_only_cap": 40,
+    "single_snapshot_cap": 60,
+    "multi_cap": 100,
+    "volume_factor": [[300, 1.0], [100, 0.8], [30, 0.6], [10, 0.4], [1, 0.25]],
+    "no_sales_label_score": 20,
+    "attention_high": 50,
+    "attention_scores": {"high": 40, "low": 25},
+    "gate_min_sold": 30,
+    "min_timepoints": 2,
+    "min_platforms": 2
+  },
+  "trend": {
+    "stage_score": {"emerging": 70, "growing": 80, "trending": 85, "stable": 65, "saturated": 35, "declining": 20},
+    "_note": "unknown -> null. Xu hướng không phải Gate."
+  },
+  "competition": {
+    "min_listings": 3,
+    "shop_count": [[3, 75], [7, 60], [15, 45], [1000000, 30]],
+    "undercut_ratio": 0.7,
+    "fixed_price_spread": 0.03,
+    "price_scores": {"undercut": 35, "fixed": 50, "normal": 65},
+    "leader_share": [[0.7, 35], [0.5, 50], [0, 70]],
+    "incumbent_share": [[0.5, 35], [0.25, 50], [0, 65]],
+    "incumbent_patterns": ["official", "mall", "nhà phân phối", "nha phan phoi", "tổng kho", "tong kho", "chính hãng", "chinh hang"],
+    "brand_aliases": {"hunonic": ["hunonic"], "rangdong": ["rạng đông", "rang dong", "- rd"], "tuya": ["tuya smart", "tuya việt nam", "tuya viet nam"]},
+    "differentiation_score": 70,
+    "cap_without_differentiation": 70,
+    "bands": [[80, "Có cơ hội cạnh tranh tốt"], [60, "Có khả năng cạnh tranh"], [40, "Cạnh tranh khó"], [0, "Cạnh tranh rất khó"]]
+  },
+  "supplier": {
+    "vendor_points_scale": 80,
+    "dealer_quote_bonus": 20,
+    "wholesale_listed_bonus": 10
+  },
+  "financial": {
+    "target_margin_pct": 10,
+    "margin_score": [[25, 90], [20, 80], [15, 70], [10, 60], [5, 40], [0, 20], [-1000, 0]],
+    "ceiling_cap": 50,
+    "discount_score": [[25, 50], [35, 40], [45, 30], [55, 20], [1000, 10]],
+    "known_cost_cap": 60
+  },
+  "identity": {
+    "min_listings": 3,
+    "max_p75_p25_ratio": 1.4
+  },
+  "confidence": {
+    "vendor_review": "theo tỷ lệ điểm/12",
+    "max_cost_factor": 0.4
+  },
+  "own_shop_names": ["điện toàn mỹ", "dien toan my", "toàn mỹ smart", "toan my smart"]
+}
