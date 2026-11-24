@@ -97,6 +97,12 @@
       "need_quote",
       "quoted"
     ],
+    "price_basis": [
+      "retail_listed",
+      "wholesale_listed",
+      "dealer_quote",
+      "source_reference"
+    ],
     "run_type": [
       "manual",
       "scheduled"
@@ -121,6 +127,12 @@
       "third_party",
       "inferred",
       "estimated"
+    ],
+    "vendor_criterion_status": [
+      "verified",
+      "stated",
+      "user_input",
+      "missing"
     ]
   },
   "kinds": {
@@ -206,10 +218,12 @@
         "trust_signals": "list",
         "trust_level": "str",
         "contact_note": "str",
+        "price_basis": "str",
         "note": "str"
       },
       "enum_fields": {
         "quote_status": "quote_status",
+        "price_basis": "price_basis",
         "verification": "verification",
         "market": "market"
       }
@@ -345,6 +359,22 @@
         "reason": "str"
       },
       "optional": {}
+    },
+    "vendor_review": {
+      "required": {
+        "vendor_key": "str",
+        "vendor_name": "str",
+        "criteria": "dict"
+      },
+      "optional": {
+        "supplier_refs": "list",
+        "market": "str",
+        "note": "str",
+        "vendor_domains": "list"
+      },
+      "enum_fields": {
+        "market": "market"
+      }
     }
   },
   "product": {
