@@ -17,7 +17,7 @@
 |---|---|---|---|---|
 | Shopee tìm kiếm (đã đăng nhập) | `shopee.vn/search?keyword=…` | ❌ **CAPTCHA** (`/verify/captcha`, trước đó `/verify/traffic`). Không được tự vượt | — | 04, 03 (chỉ khi người dùng tự giải CAPTCHA trong khung trình duyệt) |
 | TikTok tìm kiếm video | `tiktok.com/search/video?q=…` | ✅ (trang `/search?q=` lần đầu báo lỗi máy chủ; `/search/video` chạy) | Mô tả video, tên kênh, ngày đăng, số lượt thích | 02, 03 |
-| TikTok Creator Search Insights | `tiktok.com/csi` | ✅ (đã đăng nhập) | Chủ đề tìm kiếm, độ phổ biến, % tăng | 02, 01 |
+| TikTok Creator Search Insights | `tiktok.com/csi` | ✅ (đã đăng nhập; kiểm lại 2026-11-24 14:10) | Chủ đề tìm kiếm, độ phổ biến, % tăng. Trang chi tiết chủ đề cho chuỗi theo ngày tối đa 6 tháng (đọc từ phản hồi mạng `inspired_query/detail/popularity`, không đọc hình). Nhiều từ khóa sản phẩm không có chủ đề khớp. Ngày 18/6–27/7/2026 trả 0 liên tục ở nhiều chủ đề (mất dữ liệu) | 02, 01 |
 | Google Trends (Khám phá cũ) | `trends.google.com/trends/explore?geo=VN&date=today%2012-m&q=a,b&hl=vi` | ✅ | **Bảng số theo tuần** (đọc từ `document.body.innerText`), tiểu vùng, cụm từ liên quan. Trang báo "phiên bản cũ sắp ngừng" → cần phương án trang mới | 02 |
 | Google Search VN | `google.com/search?q=…&hl=vi&gl=vn` | ✅ | Kết quả web có giá, tên đơn vị bán. **Phần "Thông tin tổng quan do AI tạo" không được dùng làm nguồn**; chỉ dùng kết quả web có URL và phải mở trang gốc để xác minh | 01, 04, 05 |
 | Lazada VN | `lazada.vn/catalog/?q=…` | ✅ | Tổng số sản phẩm ("Tìm thấy 4293 sản phẩm"), giá, % giảm, "Đã bán", số đánh giá, nơi bán | 04, 03 |
@@ -30,7 +30,7 @@
 | tinhte.vn tìm kiếm | `tinhte.vn/search/?q=…` | ⚠️ Chỉ hiện form, không có kết quả qua URL. Tìm qua Google | — | 01, 03 |
 | voz.vn | `voz.vn/search/…` | ❌ Cloudflare "Just a moment…" (HTTP 403). Không vượt | — | — |
 | Facebook nhóm/bài | qua Google | ❌ Phần lớn nội dung cần đăng nhập. Không dùng đoạn trích Google | — | — |
-| TikTok (lần 2) | `tiktok.com/csi` | ❌ 2026-11-24 13:00: trình duyệt Claude từ chối mở tiktok.com (navigation denied). Lần trước (10:30) mở được | — | 02 |
+| TikTok (lần 2) | `tiktok.com/csi` | ❌ 2026-11-24 13:00: trình duyệt Claude từ chối mở tiktok.com (navigation denied). Mở lại được lúc 14:06 sau khi người dùng đăng nhập | — | 02 |
 | Taobao, Tiki, TikTok Shop (web), Amazon | — | ⬜ Chưa kiểm thử | — | — |
 
 ## Hệ quả cho thiết kế
