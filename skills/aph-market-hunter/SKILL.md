@@ -27,6 +27,7 @@ Bắt buộc đọc trước: `rules/research_rules.md`, `docs/SOURCE_ACCESS_MAT
 3. Với mỗi ứng viên:
    - `aph.py match --name "<tên>" --function-key "<chức-năng>|<biến-thể>"`. Có `exact` → dùng id cũ. Có `possible`/`weak` → tự so chức năng và giao thức; khác thật → `add-product` (công cụ tự chống trùng theo function_key) rồi `relate --rel variant_of`.
    - Kiểm tra có mặt ở VN: trang tag Lazada `https://www.lazada.vn/tag/<từ-khóa-không-dấu>/` (đọc được, có giá, "Đã bán", số đánh giá), Google VN, TikTok. Shopee chỉ khi người dùng có mặt để tự giải CAPTCHA.
+   - Nhiều từ khóa Lazada: có thể đọc JSON mà trang tìm kiếm dùng (`/catalog/?ajax=true&q=…`, trong tab đang mở lazada.vn), **tối đa 2 từ khóa mỗi lần gọi**, nghỉ 2 giây; gọi nhiều hơn bị treo quá 45 giây (thử thật 2026-11-24). Ghi rõ nguồn JSON trong note. Bỏ qua `totalResults` (trả cùng một số cho nhiều từ khóa khác nhau).
    - Ghi `listing` cho từng tin đăng đọc được, và thêm `observation metric=sold_label` cho nhãn "Đã bán" (nhãn đã bán là tín hiệu nhu cầu, listing một mình chỉ tính cạnh tranh).
    - `new_to_market_evidence` trong product: chỉ ghi khi có bằng chứng (ngày ra mắt, ngày đăng bán đầu tiên, rất ít người bán VN). Không có → để trống. Người nghiên cứu mới biết đến không phải bằng chứng.
 4. Dừng khi đủ số lượng người dùng yêu cầu hoặc hết ngân sách trang.
