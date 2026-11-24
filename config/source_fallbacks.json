@@ -64,7 +64,9 @@
       "metrics": [
         "sold_label",
         "review_count",
-        "question_count"
+        "question_count",
+        "complaint_mention",
+        "question_mention"
       ],
       "kinds": [
         "demand"
