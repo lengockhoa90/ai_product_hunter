@@ -30,6 +30,7 @@
 | tinhte.vn tìm kiếm | `tinhte.vn/search/?q=…` | ⚠️ Chỉ hiện form, không có kết quả qua URL. Tìm qua Google | — | 01, 03 |
 | voz.vn | `voz.vn/search/…` | ❌ Cloudflare "Just a moment…" (HTTP 403). Không vượt | — | — |
 | Facebook nhóm/bài | qua Google | ❌ Phần lớn nội dung cần đăng nhập. Không dùng đoạn trích Google | — | — |
+| TikTok (lần 2) | `tiktok.com/csi` | ❌ 2026-11-24 13:00: trình duyệt Claude từ chối mở tiktok.com (navigation denied). Lần trước (10:30) mở được | — | 02 |
 | Taobao, Tiki, TikTok Shop (web), Amazon | — | ⬜ Chưa kiểm thử | — | — |
 
 ## Hệ quả cho thiết kế

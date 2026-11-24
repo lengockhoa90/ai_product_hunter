@@ -452,3 +452,46 @@ class TestCoverage(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def weekly(vals, start="2025-11-23"):
+    d0 = __import__("datetime").date.fromisoformat(start)
+    return [{"t": (d0 + __import__("datetime").timedelta(days=7 * i)).isoformat(), "v": v} for i, v in enumerate(vals)]
+
+
+class TestTrendStage(Base):
+    def test_growing_uses_median_not_spike(self):
+        flat = [20] * 41 + [27] * 12
+        self.assertEqual(aph.trend_indicator(weekly(flat))["stage"], "growing")
+        spike = [20] * 30 + [100] + [20] * 22
+        self.assertEqual(aph.trend_indicator(weekly(spike))["stage"], "stable")
+
+    def test_declining_emerging_lowvolume(self):
+        self.assertEqual(aph.trend_indicator(weekly([40] * 41 + [20] * 12))["stage"], "declining")
+        self.assertEqual(aph.trend_indicator(weekly([0, 1] * 14 + [5] * 13 + [30] * 12))["stage"], "emerging")
+        low = aph.trend_indicator(weekly([0, 0, 5] * 17 + [0, 0]))
+        self.assertEqual((low["stage"], low["reason"]), ("unknown", "low_volume"))
+        self.assertEqual(aph.trend_indicator(weekly([30] * 10))["reason"], "too_few_points")
+        noisy = aph.trend_indicator(weekly([0, 0, 12] * 13 + [3, 4] * 7))  # trung vị nhỏ hơn 10: nhiễu, không phải tăng
+        self.assertEqual(noisy["reason"], "low_volume")
+        self.assertEqual(aph.trend_indicator(weekly([20] * 41 + [40] * 12))["stage"], "trending")
+
+    def test_needs_two_sources_to_conclude(self):
+        pid = self.product()["product_id"]
+        up = weekly([20] * 41 + [27] * 12)
+        self.obs(pid, metric="search_interest", url="https://trends.google.com/a", series=up, value=30, evidence_excerpt="tuần cuối 30")
+        one = aph.trend_assess(self.st, pid)
+        self.assertEqual(one["stage"], "unknown")
+        self.assertIn("Chỉ 1 nguồn", one["basis"])
+        self.obs(pid, metric="csi_popularity", url="https://www.tiktok.com/csi", series=up, value=30, evidence_excerpt="độ phổ biến 30")
+        two = aph.trend_assess(self.st, pid)
+        self.assertEqual(two["stage"], "growing")
+        self.assertEqual(len(two["evidence"]), 2)
+
+    def test_conflicting_sources_stay_unknown(self):
+        pid = self.product()["product_id"]
+        self.obs(pid, metric="search_interest", url="https://trends.google.com/a", series=weekly([20] * 41 + [27] * 12), value=30, evidence_excerpt="tuần cuối 30")
+        self.obs(pid, metric="csi_popularity", url="https://www.tiktok.com/csi", series=weekly([40] * 41 + [20] * 12), value=20, evidence_excerpt="độ phổ biến 20")
+        r = aph.trend_assess(self.st, pid)
+        self.assertEqual(r["stage"], "unknown")
+        self.assertIn("mâu thuẫn", r["basis"])

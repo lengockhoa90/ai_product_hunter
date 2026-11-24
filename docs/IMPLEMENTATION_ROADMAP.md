@@ -89,7 +89,7 @@ Mỗi Agent là `skills/aph-<agent>/SKILL.md` gồm: Mục tiêu · Input · Out
 | 3.2 | 06 Profit Analyst | ⬜ | Lấy được ít nhất 1 biểu phí cố định theo ngành có nguồn; `profit` đúng với bảng tính tay; thiếu phí thì `incomplete` |
 | 3.3 | 07 Opportunity Evaluator | ⬜ | Điểm, Data Confidence, trần 74, nhãn 5 dạng cơ hội cho các sản phẩm của 3.1 |
 | 3.4 | 03 Demand Analyst | ⬜ | Với 1 vấn đề thật: ≥ 3 nguồn độc lập; có tín hiệu ngoài tín hiệu chú ý |
-| 3.5 | 02 Trend Hunter | ⬜ | ≥ 2 mốc thời gian, phân loại Emerging→Declining; chuyển sang trang Google Trends mới |
+| 3.5 | 02 Trend Hunter | 🧪 Skill `dtm-trend-hunter` + lệnh `aph.py trend` (trung vị 12 tuần, ngưỡng ít dữ liệu, cần ≥ 2 nguồn cùng hướng; có kiểm thử). Chạy thật 1 lần (run Agent 02 ngày 2026-11-24): 9 chuỗi Trends 53 tuần. **Chưa đạt**: chưa có nguồn thứ 2 (TikTok bị từ chối mở), nên chưa kết luận giai đoạn. Trang Trends mới ⬜. ⏳ Đang chờ người dùng duyệt PR | ≥ 2 mốc thời gian, phân loại Emerging→Declining; chuyển sang trang Google Trends mới |
 | 3.6 | 05 Supplier Hunter | ⬜ | ≥ 3 NCC trong nước có giá, hoặc ghi rõ "cần báo giá" |
 | 3.7 | 04 Competitor Analyst | ⬜ | ≥ 2 nền tảng cho giá/cạnh tranh VN; Shopee khi người dùng giải CAPTCHA |
 | 3.8 | Tích hợp: 1 deep-dive thật | ⬜ | Đo thời gian và số trang (G7); mọi nhận định có trích dẫn |
