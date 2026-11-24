@@ -94,18 +94,19 @@ Mỗi skill được đề xuất cho người dùng lưu sau khi kiểm thử �
 
 ---
 
-## PHASE 5 — AUTOMATION
+## PHASE 5 — AUTOMATION (bán tự động, theo quyết định 2026-11-24)
 
-Chỉ bắt đầu khi người dùng đồng ý tạo scheduled task.
+Chỉ bắt đầu khi người dùng đồng ý tạo scheduled task. Đã kiểm chứng (PHASE_1_AUDIT mục I): lịch cloud **không** dùng được trình duyệt PC, nên lịch chỉ làm WebSearch, chấm điểm, báo cáo và lập hàng đợi thu thập; thu thập qua trình duyệt chạy trong thread người dùng mở (`daily_collect`).
 
 | # | Job | Tiêu chí |
 |---|---|---|
-| 5.1 | Kiểm thử: scheduled run có gọi được trình duyệt trên PC không | Kết quả thật, ghi vào SOURCE_ACCESS_MATRIX |
+| 5.1 | Kiểm thử: scheduled run có gọi được trình duyệt trên PC không | ✅ Đã kiểm chứng 2026-11-24: **không** |
 | 5.2 | daily-discovery | Chạy 3 ngày liên tiếp không lỗi chặn, có Daily Report |
 | 5.3 | watchlist-refresh | Thêm observation mới, không tạo bản ghi trùng |
 | 5.4 | weekly-review | Weekly Report đúng hạn |
 | 5.5 | deep-dive-on-trigger | Đề xuất deep-dive, chỉ chạy khi người dùng duyệt |
-| 5.6 | Dự phòng Cowork desktop | Hướng dẫn tạo task trên desktop nếu cloud không dùng được trình duyệt |
+| 5.6 | ~~Dự phòng Cowork desktop~~ | Bỏ: tác vụ trên PC không ghi được vào thư mục dự án |
+| 5.7 | Hàng đợi thu thập `queue/YYYY-MM-DD.json` + lệnh `daily_collect` | Lịch tạo hàng đợi; thread người dùng xử lý; mục chưa xử lý được chuyển sang ngày sau |
 
 ---
 
@@ -200,3 +201,18 @@ ai-product-hunter/                    # Git repo (D1) + bản sao trong /mnt/pro
 | Run thật | ✅ | `run_20261124…`: 1 sản phẩm (cảm biến rò rỉ nước Zigbee), 2 observation, 2 NCC tham khảo, 1 lỗi Shopee CAPTCHA; thêm lại bằng tên khác (en/zh) → nhận ra sản phẩm cũ, không tạo trùng. Data Confidence = 37,9 (thiếu lợi nhuận, khác biệt, phù hợp) |
 
 Phát hiện từ run thật: Google Trends cho "cảm biến rò rỉ nước" tại VN gần như bằng 0 suốt 12 tháng (so với "công tắc thông minh" trung bình 56). Đây là dữ liệu quan sát, chưa phải kết luận về sản phẩm.
+
+---
+
+## Điều chỉnh sau kiểm toán (2026-11-24, theo PHASE_1_AUDIT.md)
+
+| Mục | Trạng thái |
+|---|---|
+| G1 Kiểm thử lịch chạy | ✅ Lịch cloud không có trình duyệt/thư mục PC |
+| G2 Truy cập trực tiếp từ cloud | ✅ Bị chặn chống bot (Trends 429, Alibaba/1688 punish) |
+| G3 Shopee | ✅ Người dùng tự giải CAPTCHA trong phiên thu thập |
+| G4 Kiến trúc v0.3 | ✅ Bán tự động, bỏ dự phòng Cowork, một người ghi, phân tầng theo dõi, xử lý lỗi lịch, tách việc Demand/Competitor |
+| G5 `evidence_excerpt` | ✅ Bắt buộc với `observed`, công cụ kiểm tra con số nằm trong đoạn trích. 2 observation ghi trước quy tắc này (run kiểm thử Phase 2) không có đoạn trích |
+| G6 Lỗi hiệu năng `list` | ✅ Quét kho một lần; test 2.000 sản phẩm / 50.000 bản ghi |
+| G7 Đo chi phí một deep-dive thật | ⬜ Làm ở Phase 3 |
+| G8 Kiểm thử Taobao, Tiki, web TikTok Shop, Google Trends trang mới | ⬜ |

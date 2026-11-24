@@ -18,17 +18,17 @@
   "kinds": {
     "observation": {
       "required": {"product_id": "str", "agent": "str", "metric": "str", "value": "any", "source_type": "str", "verification": "str", "confidence": "num"},
-      "optional": {"unit": "str", "range_low": "num", "range_high": "num", "market": "str", "platform": "str", "source_url": "str", "observed_at": "str", "valid_until": "str", "note": "str", "series": "list"},
+      "optional": {"evidence_excerpt": "str", "unit": "str", "range_low": "num", "range_high": "num", "market": "str", "platform": "str", "source_url": "str", "observed_at": "str", "valid_until": "str", "note": "str", "series": "list"},
       "enum_fields": {"agent": "agent", "source_type": "source_type", "verification": "verification", "market": "market"}
     },
     "listing": {
       "required": {"product_id": "str", "platform": "str", "url": "str", "verification": "str"},
-      "optional": {"shop_name": "str", "title": "str", "price_vnd": "num", "sold_label": "str", "rating": "num", "review_count": "int", "warranty": "str", "location": "str", "content_quality_note": "str", "strengths": "list", "weaknesses": "list", "note": "str"},
+      "optional": {"evidence_excerpt": "str", "shop_name": "str", "title": "str", "price_vnd": "num", "sold_label": "str", "rating": "num", "review_count": "int", "warranty": "str", "location": "str", "content_quality_note": "str", "strengths": "list", "weaknesses": "list", "note": "str"},
       "enum_fields": {"verification": "verification"}
     },
     "supplier": {
       "required": {"product_id": "str", "name": "str", "platform": "str", "url": "str", "quote_status": "str", "verification": "str"},
-      "optional": {"market": "str", "price_tiers": "list", "currency": "str", "moq": "int", "oem_odm": "bool", "lead_time": "str", "certifications": "list", "warranty": "str", "ship_to_vn": "str", "years_active": "num", "rating": "num", "trust_signals": "list", "trust_level": "str", "contact_note": "str", "note": "str"},
+      "optional": {"evidence_excerpt": "str", "market": "str", "price_tiers": "list", "currency": "str", "moq": "int", "oem_odm": "bool", "lead_time": "str", "certifications": "list", "warranty": "str", "ship_to_vn": "str", "years_active": "num", "rating": "num", "trust_signals": "list", "trust_level": "str", "contact_note": "str", "note": "str"},
       "enum_fields": {"quote_status": "quote_status", "verification": "verification", "market": "market"}
     },
     "demand": {

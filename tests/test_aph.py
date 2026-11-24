@@ -53,6 +53,8 @@ class Base(unittest.TestCase):
     def obs(self, pid, metric="price", url="https://a.example/x", verification="observed", conf=0.9, **kw):
         d = {"product_id": pid, "agent": "competitor_analyst", "metric": metric, "value": 1,
              "source_type": "marketplace", "verification": verification, "confidence": conf, "source_url": url, **kw}
+        if verification == "observed" and "evidence_excerpt" not in kw:
+            d["evidence_excerpt"] = f"giá trị đọc được trên trang: {d['value']}"
         return self.st.append(self.run, "observation", d)
 
 
@@ -121,6 +123,55 @@ class TestSourceRules(Base):
     def test_unknown_run_rejected(self):
         with self.assertRaises(aph.APHError):
             self.st.append("run_20260101T000000_zzzz", "access", {"url": "https://x", "status": "ok"})
+
+
+class TestEvidenceExcerpt(Base):
+    def base(self, pid, **kw):
+        return {"product_id": pid, "agent": "competitor_analyst", "metric": "listing_count", "value": 4293,
+                "source_type": "marketplace", "verification": "observed", "confidence": 0.6,
+                "source_url": "https://www.lazada.vn/catalog/?q=x", **kw}
+
+    def test_observed_without_excerpt_rejected(self):
+        pid = self.product()["product_id"]
+        with self.assertRaises(aph.APHError):
+            self.st.append(self.run, "observation", self.base(pid))
+
+    def test_value_must_appear_in_excerpt(self):
+        pid = self.product()["product_id"]
+        with self.assertRaises(aph.APHError):
+            self.st.append(self.run, "observation", self.base(pid, evidence_excerpt='Tìm thấy 4239 sản phẩm cho "x"'))
+
+    def test_formatted_number_accepted(self):
+        pid = self.product()["product_id"]
+        r = self.st.append(self.run, "observation", self.base(pid, evidence_excerpt='Tìm thấy 4.293 sản phẩm cho "x"'))
+        self.assertTrue(r["id"].startswith("obs_"))
+        self.assertTrue(aph.value_in_excerpt(750000, "Giá: 750.000₫"))
+        self.assertTrue(aph.value_in_excerpt("Còn hàng", "781.000 ₫ · còn hàng"))
+
+    def test_reported_does_not_need_excerpt(self):
+        pid = self.product()["product_id"]
+        r = self.st.append(self.run, "observation", self.base(pid, verification="reported"))
+        self.assertTrue(r["id"].startswith("obs_"))
+
+
+class TestPerformance(Base):
+    def test_list_scans_store_once(self):
+        # Dữ liệu tổng hợp trong thư mục tạm, chỉ để đo tốc độ, không phải dữ liệu nghiên cứu.
+        for i in range(2000):
+            self.st._write_product({"product_id": f"prd_b{i:06d}", "canonical_name": f"sp {i}", "category": "smart_home",
+                                    "function_key": f"bench-{i}", "aliases": []})
+        path = self.st.records_path(self.run)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            for k in range(50000):
+                f.write(json.dumps({"id": f"dec_{k}", "kind": "decision", "run_id": self.run, "collected_at": "2026-11-24T00:00:00Z",
+                                    "product_id": f"prd_b{k % 2000:06d}", "research_status": "watchlist"}) + "\n")
+        import time
+        t = time.time()
+        rows = aph.list_products(self.st)
+        self.assertEqual(len(rows), 2000)
+        self.assertEqual(rows[0]["research_status"], "watchlist")
+        self.assertLess(time.time() - t, 15)
 
 
 class TestProfit(unittest.TestCase):

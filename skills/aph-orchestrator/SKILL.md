@@ -25,6 +25,7 @@ Bạn là bộ điều phối của đội nghiên cứu 7 Agent. Nhiệm vụ: 
 | watch | "Theo dõi sản phẩm này 30 ngày" | ghi `watch` (metrics, every_days, until) | — |
 | learn | "Đánh giá lại sản phẩm tôi đã thử nghiệm" | đọc `outcome` → so sánh với điểm → đề xuất, không tự đổi trọng số | — |
 | update_status | "Sản phẩm X đã đặt mẫu" | `set-status --business sample_ordered --by user` | — |
+| daily_collect | "Chạy thu thập hôm nay" | đọc hàng đợi thu thập trong ngày → thu thập qua trình duyệt theo ngân sách → chấm điểm → hoàn thiện Daily Report | standard |
 
 Không chạy toàn bộ Agent khi không cần. Nêu kế hoạch cho người dùng trong 1–2 câu rồi làm ngay. Chạy `deep` khi chưa được người dùng yêu cầu thì phải hỏi trước.
 
@@ -37,11 +38,14 @@ Trước khi nghiên cứu một sản phẩm: `aph.py match --name "<tên>" --f
 ## 3. Chạy từng Agent
 Mỗi Agent có skill riêng `aph-<agent>` (Phase 3). Khi skill Agent chưa có, làm theo mục tiêu/đầu ra trong `docs/SYSTEM_ARCHITECTURE.md` và `rules/`. Với mỗi Agent:
 - Thu thập qua trình duyệt Claude trên PC (`mcp__remote-devices__Claude_Browser__*`) hoặc WebSearch; đọc trang bằng `get_page_text` hoặc `javascript_tool` (đợi 3–5 giây).
-- Ghi ngay từng dữ liệu bằng `aph.py add --run --kind observation|listing|supplier|demand|trend --json ...`.
+- Ghi ngay từng dữ liệu bằng `aph.py add --run --kind observation|listing|supplier|demand|trend --json ...`. Dữ liệu `observed` phải có `evidence_excerpt` chép nguyên văn từ trang.
+- Shopee: khi gặp CAPTCHA, dừng và nhờ người dùng tự giải trong khung trình duyệt; chỉ đọc tiếp sau khi họ báo xong. Không bao giờ tự giải.
 - Lỗi truy cập → `aph.py log-access` rồi chuyển nguồn khác.
 - Kết thúc Agent: ghi chú ngắn những gì thiếu.
 
-PC tắt hoặc trình duyệt không phản hồi → ghi `log-access --status device_offline`, chỉ dùng WebSearch và dữ liệu trong kho, nói rõ trong báo cáo.
+PC tắt, trình duyệt không phản hồi, hoặc đang chạy theo lịch (phiên theo lịch không có trình duyệt PC) → ghi `log-access --status device_offline`, chỉ dùng WebSearch và dữ liệu trong kho, đưa phần cần trình duyệt vào hàng đợi thu thập, nói rõ trong báo cáo.
+
+Một người ghi: nếu `runs/` có run khác chưa kết thúc (dưới 2 giờ), không tạo sản phẩm mới trong run này; chỉ ghi bản ghi. Cuối run chạy `aph.py duplicates`.
 
 ## 4. Cổng kiểm tra
 - Lợi nhuận: `aph.py profit --run --product --inputs @file.json`. Mỗi đầu vào kèm `ref` (id observation, `assumption:<id>` trong `data/assumptions/assumptions.json`, hoặc `user:<ghi chú>`). Kết quả `incomplete` → không kết luận lợi nhuận.

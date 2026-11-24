@@ -105,6 +105,19 @@ def similarity(a: str, b: str) -> float:
     return round(max(seq, jac), 3)
 
 
+def value_in_excerpt(value, excerpt: str) -> bool:
+    """Giá trị quan sát phải đọc được trong đoạn trích. Số: so chuỗi chữ số (bỏ dấu . , khoảng trắng)."""
+    if isinstance(value, bool):
+        return True
+    if isinstance(value, (int, float)):
+        digits = re.sub(r"\D", "", excerpt)
+        cands = {str(int(value))} if float(value).is_integer() else {str(value).replace(".", ""), str(round(value, 1)).replace(".", "")}
+        return any(c in digits for c in cands)
+    if isinstance(value, str):
+        return norm_text(value) in norm_text(excerpt)
+    return True  # list/dict (ví dụ series): kiểm tra ở mức bản ghi con
+
+
 def domain(url: str | None) -> str | None:
     if not url:
         return None
@@ -350,6 +363,12 @@ class Store:
                 raise APHError(f"verification={v} bắt buộc có note giải thích cách ước tính/suy luận")
             if v == "estimated" and ("range_low" not in d or "range_high" not in d):
                 raise APHError("verification=estimated bắt buộc có range_low và range_high")
+            if v == "observed":
+                ex = d.get("evidence_excerpt")
+                if not ex or len(ex.strip()) < 8:
+                    raise APHError("verification=observed bắt buộc có evidence_excerpt: đoạn trích nguyên văn từ trang chứa giá trị")
+                if not value_in_excerpt(d["value"], ex):
+                    raise APHError(f"Giá trị {d['value']!r} không xuất hiện trong evidence_excerpt. Trích lại đúng đoạn chứa con số, hoặc ghi chú cách quy đổi vào note và dùng verification khác")
         if kind in ("demand", "trend") and not d["evidence"]:
             raise APHError(f"{kind} phải có evidence (danh sách id observation/listing)")
 
@@ -376,9 +395,10 @@ class Store:
         return load_json(self.root / "assumptions" / "assumptions.json", {"assumptions": []})["assumptions"]
 
     # status
-    def status(self, pid):
+    def status(self, pid, decisions=None):
+        """Trạng thái hiện tại = quyết định mới nhất. Truyền sẵn `decisions` để tránh quét lại toàn bộ kho."""
         st = {"research_status": "new", "business_status": "discovered"}
-        for r in self.records(pid, "decision"):
+        for r in (decisions if decisions is not None else self.records(pid, "decision")):
             for k in st:
                 if r.get(k):
                     st[k] = r[k]
@@ -640,14 +660,17 @@ def show(store: Store, pid):
 
 
 def list_products(store: Store):
-    rows = []
-    evals = {}
-    for r in store.records(kind="evaluation"):
-        evals[r["product_id"]] = r
+    # Quét kho đúng một lần rồi nhóm theo sản phẩm (trước đây quét lại cho từng sản phẩm: O(P x R)).
+    rows, evals, decisions = [], {}, {}
+    for r in store.records():
+        if r["kind"] == "evaluation":
+            evals[r["product_id"]] = r
+        elif r["kind"] == "decision":
+            decisions.setdefault(r["product_id"], []).append(r)
     for p in store.products():
         e = evals.get(p["product_id"])
         rows.append({"product_id": p["product_id"], "name": p["canonical_name"], "category": p["category"],
-                     **store.status(p["product_id"]),
+                     **store.status(p["product_id"], decisions.get(p["product_id"], [])),
                      "score": e["total"] if e else None, "data_confidence": e["data_confidence"] if e else None,
                      "evaluated_at": e["collected_at"] if e else None})
     return sorted(rows, key=lambda r: -(r["score"] or -1))

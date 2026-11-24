@@ -17,7 +17,7 @@ Hệ thống nghiên cứu cơ hội kinh doanh cho thị trường Việt Nam (
 
 ## Ràng buộc
 - Chỉ hệ sinh thái Claude. Không Claude API, OpenAI API, n8n, dịch vụ AI trung gian.
-- Container cloud không truy cập trực tiếp được các sàn; dùng trình duyệt Claude trên PC người dùng hoặc WebSearch.
+- Vận hành bán tự động: lịch cloud không có trình duyệt PC (đã kiểm chứng); truy cập trực tiếp từ cloud bị chặn chống bot. Dữ liệu sàn chỉ thu thập trong thread có PC liên kết; lịch chỉ dùng WebSearch, kho và báo cáo.
 - Không vượt CAPTCHA, không nhập mật khẩu, không đặt hàng/thanh toán, không nhắn tin nhà cung cấp.
 - Không tạo dữ liệu giả, kể cả để minh họa. Không đánh dấu hoàn thành khi chưa kiểm thử thật.
 - Tạo scheduled task, đẩy code lên `main`, hay việc ngoài dự án: hỏi người dùng trước.

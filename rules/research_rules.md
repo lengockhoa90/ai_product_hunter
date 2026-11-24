@@ -10,6 +10,7 @@
   - `estimated`: ước tính có khoảng `range_low`/`range_high` và `note` giải thích cách ước tính.
   - `inferred`: suy luận của Claude, bắt buộc `note`. Không bao giờ dùng `inferred` cho giá hay lượt bán.
 - `confidence` (0–1): 0.9 cho số đọc rõ trên trang chính thức; 0.6 cho nhãn làm tròn ("đã bán 1,2k"); 0.4 trở xuống cho số gián tiếp.
+- `evidence_excerpt` (bắt buộc với `observed`): chép nguyên văn đoạn văn bản trên trang chứa giá trị, ví dụ `Tìm thấy 4.293 sản phẩm cho "cảm biến rò rỉ nước"`. Công cụ từ chối nếu con số không có trong đoạn trích. Không tự viết lại đoạn trích.
 - `observed_at`: ngày dữ liệu thuộc về (ví dụ tuần trong Google Trends), khác với `collected_at` (công cụ tự ghi).
 
 ## 2. Truy cập nguồn
