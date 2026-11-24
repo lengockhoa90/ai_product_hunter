@@ -20,7 +20,7 @@ Khác skill `trend-hunter-dtm` (chủ đề video). Agent này chỉ trả lời
 ## 2. Google Trends (nguồn 1)
 1. Mở `https://trends.google.com/trends/explore?geo=VN&date=today%2012-m&q=<k1>,<k2>,…&hl=vi` (từ khóa mã hóa URL, cách nhau bằng dấu phẩy).
 2. Đợi 8 giây, đọc bảng theo tuần bằng `javascript_tool`:
-   `document.body.innerText.replace(/[‪-‮]/g,'').split('\n').filter(l=>/^\d{1,2} thg \d+, \d{4}\t/.test(l))`
+   `document.body.innerText.replace(/[\u202a-\u202e]/g,'').split('\n').filter(l=>/^\d{1,2} thg \d+, \d{4}\t/.test(l))`
    Mỗi dòng: `ngày<TAB>y1<TAB>…<TAB>y5` theo đúng thứ tự từ khóa trong URL. Đủ 52–53 dòng mới dùng.
 3. Lưu bảng thô vào thư mục tạm trước khi ghi kho.
 4. Mỗi từ khóa ghi một `observation`: `metric=search_interest`, `platform=google_trends`, `source_type=trends`, `verification=observed`, `confidence=0.8`, `value` = giá trị tuần cuối, `evidence_excerpt` = nguyên dòng tuần cuối, `observed_at` = ngày tuần cuối (ISO), `series` = `[{"t":"YYYY-MM-DD","v":số}, …]` đủ 12 tháng, `note` = từ khóa, cột yN, các từ khóa cùng lượt, cảnh báo lệch nghĩa.
