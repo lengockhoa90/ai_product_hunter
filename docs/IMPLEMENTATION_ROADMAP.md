@@ -85,7 +85,7 @@ Mỗi Agent là `skills/aph-<agent>/SKILL.md` gồm: Mục tiêu · Input · Out
 
 | Thứ tự | Agent | Trạng thái | Tiêu chí kiểm thử thật |
 |---|---|---|---|
-| 3.1 | **01 Market Hunter** (2 chế độ: theo danh mục và problem-first) | ⬜ **Đề xuất làm tiếp theo** | Xem mục 5.1 |
+| 3.1 | **01 Market Hunter** (2 chế độ: theo danh mục và problem-first) | 🧪 Skill `aph-market-hunter` đã viết. Chế độ B chạy thật 1 lần (run_20261124T052140_58ec): 1 vấn đề, 2 giải pháp, chạy lại không trùng; **chưa đạt** ≥ 3 nguồn cho vấn đề. Chế độ A ⬜ chưa chạy thật. ⏳ Đang chờ người dùng duyệt PR | Xem mục 5.1 |
 | 3.2 | 06 Profit Analyst | ⬜ | Lấy được ít nhất 1 biểu phí cố định theo ngành có nguồn; `profit` đúng với bảng tính tay; thiếu phí thì `incomplete` |
 | 3.3 | 07 Opportunity Evaluator | ⬜ | Điểm, Data Confidence, trần 74, nhãn 5 dạng cơ hội cho các sản phẩm của 3.1 |
 | 3.4 | 03 Demand Analyst | ⬜ | Với 1 vấn đề thật: ≥ 3 nguồn độc lập; có tín hiệu ngoài tín hiệu chú ý |
@@ -153,7 +153,7 @@ Mỗi Agent là `skills/aph-<agent>/SKILL.md` gồm: Mục tiêu · Input · Out
 | G5 | `evidence_excerpt` | ✅ |
 | G6 | Hiệu năng `list` | ✅ |
 | G7 | Đo chi phí một deep-dive thật | ⬜ (Phase 3.8) |
-| G8 | Kiểm thử Taobao, Tiki, web TikTok Shop, Google Trends trang mới, diễn đàn VN | ⬜ (diễn đàn VN làm trước Agent 01) |
+| G8 | Kiểm thử Taobao, Tiki, web TikTok Shop, Google Trends trang mới, diễn đàn VN | 🧪 Diễn đàn VN đã thử 2026-11-24: otofun ✅, tinhte qua Google, voz ❌ Cloudflare, Facebook ❌ đăng nhập. Taobao, Tiki, TikTok Shop web, Trends mới ⬜ |
 
 ---
 

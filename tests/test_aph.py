@@ -234,7 +234,8 @@ class TestScoring(Base):
         self.st.append(self.run, "supplier", {"product_id": pid, "name": "NCC", "platform": "web", "url": "https://ncc.vn",
                                              "quote_status": "listed", "verification": "observed"})
         self.st.append(self.run, "listing", {"product_id": pid, "platform": "lazada", "url": "https://lazada.vn/l1", "verification": "observed"})
-        self.st.append(self.run, "demand", {"product_id": pid, "type": "complaint", "theme": "mất kết nối", "evidence": ["x"], "independent_sources": 3})
+        ev = self.obs(pid, metric="complaint_mention", url="https://lazada.vn/r1")["id"]
+        self.st.append(self.run, "demand", {"product_id": pid, "type": "complaint", "theme": "mất kết nối", "evidence": [ev], "independent_sources": 3})
         # mô phỏng lợi nhuận đủ trường nhưng không có tham chiếu nguồn -> độ tin cậy profit thấp
         inp = {k: {sc: v[sc] for sc in aph.SCENARIOS} for k, v in full_inputs().items()}
         sim = aph.profit_sim(inp, BUSINESS)
@@ -301,7 +302,7 @@ class TestStatusAndIndex(Base):
 class TestProblems(Base):
     def problem(self, statement="Nhà bị ngập nước khi đi vắng do rò rỉ ống nước", key="water-leak-damage|home-away"):
         return self.st.append(self.run, "problem", {"statement": statement, "problem_key": key, "category": "smart_home",
-                                                    "evidence": ["obs_x"]})
+                                                    "evidence": []})
 
     def test_problem_dedup(self):
         a = self.problem()
@@ -336,9 +337,39 @@ class TestProblems(Base):
 
     def test_list_problems(self):
         prob = self.problem()
-        self.st.append(self.run, "demand", {"problem_ref": prob["id"], "type": "question", "theme": "lắp ở đâu", "evidence": ["a"]})
+        o1 = self.problem_obs(prob["id"], "https://forum-a.vn/t/1")
+        self.problem_obs(prob["id"], "https://forum-b.vn/t/2")
+        self.st.append(self.run, "demand", {"problem_ref": prob["id"], "type": "question", "theme": "lắp ở đâu", "evidence": [o1["id"]]})
         rows = aph.list_problems(self.st)
         self.assertEqual(rows[0]["demand_signals"], {"question": 1})
+        self.assertEqual(rows[0]["evidence_count"], 2)
+        self.assertEqual(rows[0]["independent_sources"], 2)
+
+    def problem_obs(self, ref, url):
+        return self.st.append(self.run, "observation", {"problem_ref": ref, "agent": "market_hunter", "metric": "question_mention",
+                                                        "value": "lắp ở đâu", "source_type": "forum", "verification": "observed",
+                                                        "confidence": 0.6, "source_url": url, "evidence_excerpt": "cảm biến nên lắp ở đâu ạ"})
+
+    def test_evidence_ids_must_exist(self):
+        prob = self.problem()
+        with self.assertRaises(aph.APHError):
+            self.st.append(self.run, "demand", {"problem_ref": prob["id"], "type": "complaint", "theme": "x",
+                                                "evidence": ["{'error': 'observation cần product_id'}"]})
+
+    def test_retraction_hides_record_and_frees_problem_key(self):
+        bad = self.problem()
+        self.st.retract(self.run, bad["id"], "evidence trỏ tới id lỗi khi ghi")
+        self.assertEqual([p for p in self.st.records(kind="problem")], [])
+        again = self.problem()
+        self.assertNotEqual(again.get("status"), "existing")
+        self.assertEqual(len(self.st.records(kind="problem", include_retracted=True)), 2)
+        with self.assertRaises(aph.APHError):
+            self.st.retract(self.run, bad["id"], "x")
+
+    def test_problem_without_evidence_stays_candidate(self):
+        with self.assertRaises(aph.APHError):
+            self.st.append(self.run, "problem", {"statement": "Ổ cắm nóng chảy khi dùng bếp từ", "problem_key": "socket-overheat",
+                                                 "category": "electrical_household", "evidence": [], "status": "validated"})
 
 
 class TestDemandNotAttentionOnly(Base):
@@ -349,7 +380,8 @@ class TestDemandNotAttentionOnly(Base):
         d = aph.compute_confidence(self.st, pid)["criteria"]["demand"]
         self.assertTrue(d["attention_only"])
         self.assertLessEqual(d["confidence"], 0.3)
-        self.st.append(self.run, "demand", {"product_id": pid, "type": "purchase_intent", "theme": "hỏi mua", "evidence": ["x"],
+        ev = self.obs(pid, metric="question_count", url="https://lazada.vn/q1")["id"]
+        self.st.append(self.run, "demand", {"product_id": pid, "type": "purchase_intent", "theme": "hỏi mua", "evidence": [ev],
                                             "independent_sources": 3})
         d2 = aph.compute_confidence(self.st, pid)["criteria"]["demand"]
         self.assertFalse(d2["attention_only"])

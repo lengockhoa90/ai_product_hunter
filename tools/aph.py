@@ -355,6 +355,11 @@ class Store:
                     return {"status": "existing", "id": p["id"], "statement": p["statement"],
                             "hint": "Vấn đề này đã có. Gắn bằng chứng mới bằng problem_ref thay vì tạo lại."}
         self._source_rules(kind, data)
+        if data.get("evidence"):
+            known = {r["id"] for r in self.records()}
+            missing = [e for e in data["evidence"] if e not in known]
+            if missing:
+                raise APHError(f"evidence tham chiếu id không có trong kho: {missing}. Ghi observation/listing trước rồi dùng id trả về")
         rec = {"id": f"{kind[:3]}_{uuid.uuid4().hex[:12]}", "kind": kind, "run_id": run_id,
                "collected_at": now_iso(), **data}
         path = self.records_path(run_id)
@@ -393,27 +398,45 @@ class Store:
                     raise APHError(f"Giá trị {d['value']!r} không xuất hiện trong evidence_excerpt. Trích lại đúng đoạn chứa con số, hoặc ghi chú cách quy đổi vào note và dùng verification khác")
         if kind == "solution" and d["fit"] == "bundle_component" and not d.get("bundle_with"):
             raise APHError("fit=bundle_component cần bundle_with (danh sách product_id cùng bộ)")
-        if kind in ("demand", "trend", "problem") and not d["evidence"]:
+        if kind in ("demand", "trend") and not d["evidence"]:
             raise APHError(f"{kind} phải có evidence (danh sách id observation/listing)")
+        if kind == "problem" and not d["evidence"] and d.get("status", "candidate") != "candidate":
+            raise APHError("problem chưa có evidence chỉ được ở trạng thái candidate; gắn bằng chứng qua problem_ref rồi mới chuyển validated")
 
-    def records(self, product_id=None, kind=None):
+    def records(self, product_id=None, kind=None, include_retracted=False):
+        """Đọc bản ghi. Bản ghi bị rút lại (kind=retraction, target=<id>) bị bỏ qua, trừ khi include_retracted."""
         out = []
         base = self.root / "records"
         if not base.exists():
             return out
+        allr = []
         for path in sorted(base.rglob("*.jsonl")):
             with open(path, encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
-                    if not line:
-                        continue
-                    r = json.loads(line)
-                    if product_id and r.get("product_id") != product_id:
-                        continue
-                    if kind and r["kind"] != kind:
-                        continue
-                    out.append(r)
+                    if line:
+                        allr.append(json.loads(line))
+        retracted = set() if include_retracted else {r["target"] for r in allr if r["kind"] == "retraction"}
+        for r in allr:
+            if r["id"] in retracted:
+                continue
+            if product_id and r.get("product_id") != product_id:
+                continue
+            if kind and r["kind"] != kind:
+                continue
+            out.append(r)
         return sorted(out, key=lambda r: r["collected_at"])
+
+    def retract(self, run_id, target, reason):
+        """Rút lại một bản ghi sai (kho chỉ ghi thêm, không xóa). Bản ghi gốc vẫn còn trong file để kiểm tra lại."""
+        if not reason or len(reason.strip()) < 8:
+            raise APHError("retract cần --reason giải thích vì sao bản ghi sai")
+        hit = [r for r in self.records(include_retracted=True) if r["id"] == target]
+        if not hit:
+            raise APHError(f"Không có bản ghi {target}")
+        if hit[0]["kind"] == "retraction":
+            raise APHError("Không rút lại một bản ghi retraction")
+        return self.append(run_id, "retraction", {"target": target, "target_kind": hit[0]["kind"], "reason": reason})
 
     def assumptions(self):
         return load_json(self.root / "assumptions" / "assumptions.json", {"assumptions": []})["assumptions"]
@@ -728,7 +751,10 @@ def list_problems(store: Store):
         sols = [{"product_id": r["product_id"], "fit": r["fit"], "bundle_with": r.get("bundle_with", [])}
                 for r in recs if r["kind"] == "solution" and r["problem_ref"] == p["id"]]
         dem = [r for r in recs if r["kind"] == "demand" and r.get("problem_ref") == p["id"]]
+        ev_ids = set(p.get("evidence", [])) | {r["id"] for r in recs if r.get("problem_ref") == p["id"] and r["kind"] in ("observation", "listing")}
+        ev = [r for r in recs if r["id"] in ev_ids]
         out.append({"id": p["id"], "statement": p["statement"], "category": p["category"], "status": p.get("status", "candidate"),
+                    "evidence_count": len(ev), "independent_sources": len({platform_of(r) for r in ev}),
                     "demand_signals": {t: sum(1 for d in dem if d["type"] == t) for t in sorted({d["type"] for d in dem})},
                     "solutions": sols, "solution_gaps": p.get("solution_gaps", [])})
     return out
@@ -823,6 +849,8 @@ def main(argv=None):
     s.add_argument("--run", required=True); s.add_argument("--kind", required=True); s.add_argument("--json", required=True)
     s = sub.add_parser("log-access"); s.add_argument("--run", required=True); s.add_argument("--url", required=True)
     s.add_argument("--status", required=True); s.add_argument("--agent"); s.add_argument("--note")
+    s = sub.add_parser("retract", help="Rút lại bản ghi sai (ghi thêm bản ghi retraction, không xóa)")
+    s.add_argument("--run", required=True); s.add_argument("--id", required=True); s.add_argument("--reason", required=True)
     s = sub.add_parser("profit"); s.add_argument("--run"); s.add_argument("--product", required=True); s.add_argument("--inputs", required=True)
     s.add_argument("--platform", required=True, choices=["shopee", "tiktok_shop", "lazada", "own_site"])
     s.add_argument("--dry", action="store_true", help="Chỉ tính, không ghi")
@@ -861,6 +889,8 @@ def main(argv=None):
             if a.agent: d["agent"] = a.agent
             if a.note: d["note"] = a.note
             res = st.append(a.run, "access", d)
+        elif a.cmd == "retract":
+            res = st.retract(a.run, a.id, a.reason)
         elif a.cmd == "profit":
             prod = st.product(a.product)
             known = {r["id"] for r in st.records(a.product)}

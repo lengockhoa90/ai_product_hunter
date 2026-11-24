@@ -37,7 +37,7 @@ Trước khi nghiên cứu một sản phẩm: `aph.py match --name "<tên>" --f
 - Không có → `add-product --run <run_id> --json '{...}'` (category theo `config/categories.json`).
 
 ## 3. Chạy từng Agent
-Mỗi Agent có skill riêng `aph-<agent>` (Phase 3). Khi skill Agent chưa có, làm theo mục tiêu/đầu ra trong `docs/SYSTEM_ARCHITECTURE.md` và `rules/`. Với mỗi Agent:
+Mỗi Agent có skill riêng `aph-<agent>` (Phase 3). Đã có: `skills/aph-market-hunter/SKILL.md` (Agent 01). Khi skill Agent chưa có, làm theo mục tiêu/đầu ra trong `docs/SYSTEM_ARCHITECTURE.md` và `rules/`. Với mỗi Agent:
 - Thu thập qua trình duyệt Claude trên PC (`mcp__remote-devices__Claude_Browser__*`) hoặc WebSearch; đọc trang bằng `get_page_text` hoặc `javascript_tool` (đợi 3–5 giây).
 - Ghi ngay từng dữ liệu bằng `aph.py add --run --kind observation|listing|supplier|demand|trend --json ...`. Dữ liệu `observed` phải có `evidence_excerpt` chép nguyên văn từ trang.
 - Shopee: khi gặp CAPTCHA, dừng và nhờ người dùng tự giải trong khung trình duyệt; chỉ đọc tiếp sau khi họ báo xong. Không bao giờ tự giải.
@@ -45,6 +45,7 @@ Mỗi Agent có skill riêng `aph-<agent>` (Phase 3). Khi skill Agent chưa có,
 - Vấn đề người mua: `aph.py add --kind problem --json '{"statement":...,"problem_key":...,"category":...,"evidence":[...]}'` (trả `existing` nếu trùng → dùng id đó). Nối giải pháp: `--kind solution` với `problem_ref`, `product_id`, `fit` (full/partial/bundle_component + `bundle_with`). Xem `aph.py problems`.
 - Demand (`--kind demand`, `type`): `product_demand`, `purchase_intent`, `question`, `complaint`, `unmet_need`, `alternative_solution`, `price_acceptance` (kèm `price_low_vnd`/`price_high_vnd`). Lượt xem/thích chỉ là `content_signal`; nhu cầu chỉ có tín hiệu chú ý bị giới hạn độ tin cậy 0.3.
 - Shopee bị CAPTCHA mà người dùng chưa giải → dùng nguồn dự phòng trong `config/source_fallbacks.json`; kiểm tra độ phủ bằng `aph.py coverage --product <id>`.
+- Ghi nhầm → `aph.py retract --run --id --reason`; không sửa file trong kho. Kiểm tra id trả về trước khi dùng làm evidence.
 - Kết thúc Agent: ghi chú ngắn những gì thiếu.
 
 PC tắt, trình duyệt không phản hồi, hoặc đang chạy theo lịch (phiên theo lịch không có trình duyệt PC) → ghi `log-access --status device_offline`, chỉ dùng WebSearch và dữ liệu trong kho, đưa phần cần trình duyệt vào hàng đợi thu thập, nói rõ trong báo cáo.

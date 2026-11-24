@@ -336,6 +336,14 @@
       "enum_fields": {
         "fit": "solution_fit"
       }
+    },
+    "retraction": {
+      "required": {
+        "target": "str",
+        "target_kind": "str",
+        "reason": "str"
+      },
+      "optional": {}
     }
   },
   "product": {

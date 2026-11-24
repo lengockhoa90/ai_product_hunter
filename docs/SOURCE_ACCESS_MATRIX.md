@@ -24,6 +24,12 @@
 | Alibaba.com | `alibaba.com/trade/search?SearchText=…` | ✅ (không đăng nhập) | Tên SP, giá (hiển thị VND), MOQ, số đã bán, tên NCC, số năm, quốc gia, điểm đánh giá | 05 (tham khảo), 01 |
 | 1688 | `s.1688.com/selloffer/offer_search.htm?keywords=<GBK>` | ✅ (không đăng nhập), từ khóa **bắt buộc mã hóa GBK** (UTF-8 → 0 kết quả) | Tên SP, giá ¥, số đã bán, tỷ lệ khách quay lại, tên NCC | 05 (tham khảo giá gốc), 01 |
 | Website nhà phân phối VN (ví dụ tuyasmart.com.vn, eitsmart.com.vn, tuyaviet.com) | qua Google | ✅ (thấy trên kết quả Google; mở từng trang khi nghiên cứu) | Giá niêm yết, tình trạng hàng, địa chỉ | 05 (nguồn chính, theo D3), 04 |
+| Lazada trang tag | `lazada.vn/tag/<tu-khoa>/` | ✅ (2026-11-24 12:20) | Từng tin đăng: giá, % giảm, "Đã bán", số đánh giá, nơi bán | 01, 04 |
+| Lazada đánh giá sản phẩm | trang `pdp-i…html`, cuộn xuống | ✅ | Nội dung đánh giá, ngày. Nhiều đánh giá có nhãn "từ các nền tảng khác" (dịch) → `reported`. Sản phẩm ít bán không có mục hỏi đáp | 01, 03 |
+| otofun.net.vn | chủ đề qua liên kết Google | ✅ | Nội dung bài và trả lời, ngày đăng | 01, 03 |
+| tinhte.vn tìm kiếm | `tinhte.vn/search/?q=…` | ⚠️ Chỉ hiện form, không có kết quả qua URL. Tìm qua Google | — | 01, 03 |
+| voz.vn | `voz.vn/search/…` | ❌ Cloudflare "Just a moment…" (HTTP 403). Không vượt | — | — |
+| Facebook nhóm/bài | qua Google | ❌ Phần lớn nội dung cần đăng nhập. Không dùng đoạn trích Google | — | — |
 | Taobao, Tiki, TikTok Shop (web), Amazon | — | ⬜ Chưa kiểm thử | — | — |
 
 ## Hệ quả cho thiết kế
