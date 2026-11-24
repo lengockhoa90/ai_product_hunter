@@ -35,6 +35,10 @@
 | rangdong.com.vn (Rạng Đông) | danh mục `/category/…`, trang `…-prNNNN.html`; tìm kiếm `/search.html?key=…` | ✅ 2026-11-24 (mẫu `/search?q=` báo lỗi) | Model, "Giá bán lẻ đề xuất", GPĐKKD ở chân trang | 05 |
 | tuya.vn | `tuya.vn/search?q=…` | ✅ 2026-11-24 | Giá bán lẻ, ĐKKD hộ kinh doanh ở chân trang | 05 |
 | vienthonghoangthach.com | trang "bảng giá sỉ" qua Google | ✅ 2026-11-24 | Giá sỉ/giá thợ khóa TTLock–Tuya (gồm VAT), địa chỉ; không thấy MST | 05 |
+| finance.vietstock.vn (công ty niêm yết) | `finance.vietstock.vn/<MÃ>-<tên>.htm`, tab "Đăng ký kinh doanh" | ✅ 2026-11-24 | Tên pháp nhân, địa chỉ đăng ký, website (không hiện MST) | 05 (đối chiếu pháp nhân) |
+| trangvangvietnam.com (danh bạ) | `trangvangvietnam.com/listings/<id>/<tên>.html` | ✅ 2026-11-24 | Tên DN, MST, năm thành lập, địa chỉ (có thể do DN tự khai) | 05 (đối chiếu pháp nhân) |
+| masothue.com | `/Search/?q=<MST>` hoặc ô tìm kiếm | ❌ 2026-11-24: trình duyệt tự động bị chuyển sang DN không liên quan; không dùng | – | – |
+| thuvienphapluat.vn/ma-so-thue | trang MST | ❌ 2026-11-24: Cloudflare 403; không vượt | – | – |
 | Taobao, Tiki, TikTok Shop (web), Amazon | — | ⬜ Chưa kiểm thử | — | — |
 
 ## Hệ quả cho thiết kế

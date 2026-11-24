@@ -557,3 +557,45 @@ class TestSupplierRules(Base):
         c = aph.coverage(self.st, pid)["needs"]["supply"]
         self.assertTrue(c["cost_price_known"])
         self.assertEqual(c["cost_price_suppliers"], [w["id"]])
+
+
+class TestVendorReview(Base):
+    def crit(self, **over):
+        site = {"status": "stated", "source_url": "https://ncc.example/lien-he", "evidence_excerpt": "Công ty TNHH NCC, MST 0101234567"}
+        c = {k: dict(site) for k in aph.VENDOR_CRITERIA}
+        c.update(over)
+        return c
+
+    def review(self, **kw):
+        d = {"vendor_key": "ncc.example", "vendor_name": "NCC", "criteria": self.crit(), "market": "VN", **kw}
+        return self.st.append(self.run, "vendor_review", d)
+
+    def test_needs_all_six_criteria_and_evidence(self):
+        c = self.crit(); del c["invoice"]
+        with self.assertRaises(aph.APHError):
+            self.review(criteria=c)
+        with self.assertRaises(aph.APHError):  # stated mà không có đoạn trích
+            self.review(criteria=self.crit(warranty={"status": "stated", "source_url": "https://ncc.example/bh"}))
+        with self.assertRaises(aph.APHError):  # verified phải từ nguồn độc lập, không phải trang của NCC
+            self.review(criteria=self.crit(legal_entity={"status": "verified", "source_url": "https://ncc.example/gioi-thieu",
+                                                         "evidence_excerpt": "MST 0101234567 đang hoạt động"}))
+        with self.assertRaises(aph.APHError):  # trang khác của chính NCC (vendor_domains) cũng không tính là độc lập
+            self.review(vendor_domains=["store.ncc.example"],
+                        criteria=self.crit(legal_entity={"status": "verified", "source_url": "https://store.ncc.example/chinh-sach",
+                                                         "evidence_excerpt": "GPĐKKD số 0101234567"}))
+        with self.assertRaises(aph.APHError):  # supplier_refs phải có trong kho
+            self.review(supplier_refs=["sup_khongco"])
+
+    def test_scoring_levels(self):
+        self_stated = aph.vendor_assessment(self.review())
+        self.assertEqual((self_stated["score"], self_stated["level"]), (6, "medium"))
+        self.assertFalse(self_stated["legal_entity_confirmed"])
+        verified = {"status": "verified", "source_url": "https://masothue.example/0101234567", "evidence_excerpt": "0101234567 - Đang hoạt động"}
+        good = aph.vendor_assessment(self.review(criteria=self.crit(legal_entity=verified, address=verified,
+                                                                     invoice={"status": "user_input", "value": "Có xuất VAT (anh Khoa xác nhận)"})))
+        self.assertEqual((good["score"], good["level"]), (9, "high"))
+        gaps = aph.vendor_assessment(self.review(criteria=self.crit(
+            legal_entity={"status": "missing", "note": "không thấy MST"}, invoice={"status": "missing", "note": "không ghi"})))
+        self.assertEqual(gaps["level"], "low")
+        self.assertEqual(gaps["ask_vendor"], ["Pháp nhân", "Xuất hóa đơn"])
+        self.assertEqual(aph.list_vendors(self.st)[0]["review_id"], gaps["review_id"])  # bản mới nhất của mỗi NCC

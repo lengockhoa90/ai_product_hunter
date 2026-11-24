@@ -127,6 +127,12 @@
       "third_party",
       "inferred",
       "estimated"
+    ],
+    "vendor_criterion_status": [
+      "verified",
+      "stated",
+      "user_input",
+      "missing"
     ]
   },
   "kinds": {
@@ -353,6 +359,22 @@
         "reason": "str"
       },
       "optional": {}
+    },
+    "vendor_review": {
+      "required": {
+        "vendor_key": "str",
+        "vendor_name": "str",
+        "criteria": "dict"
+      },
+      "optional": {
+        "supplier_refs": "list",
+        "market": "str",
+        "note": "str",
+        "vendor_domains": "list"
+      },
+      "enum_fields": {
+        "market": "market"
+      }
     }
   },
   "product": {

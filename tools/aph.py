@@ -360,6 +360,11 @@ class Store:
             missing = [e for e in data["evidence"] if e not in known]
             if missing:
                 raise APHError(f"evidence tham chiếu id không có trong kho: {missing}. Ghi observation/listing trước rồi dùng id trả về")
+        if kind == "vendor_review" and data.get("supplier_refs"):
+            sups = {r["id"] for r in self.records(kind="supplier")}
+            bad = [s for s in data["supplier_refs"] if s not in sups]
+            if bad:
+                raise APHError(f"supplier_refs không phải bản ghi supplier trong kho: {bad}")
         rec = {"id": f"{kind[:3]}_{uuid.uuid4().hex[:12]}", "kind": kind, "run_id": run_id,
                "collected_at": now_iso(), **data}
         path = self.records_path(run_id)
@@ -411,6 +416,24 @@ class Store:
                         raise APHError(f"Giá {t['price']!r} trong price_tiers không xuất hiện trong evidence_excerpt")
             if d["quote_status"] in ("listed", "quoted") and not tiers:
                 raise APHError("quote_status listed/quoted cần price_tiers; chưa có giá thì ghi need_quote")
+        if kind == "vendor_review":
+            crit = d["criteria"]
+            miss = [c for c in VENDOR_CRITERIA if c not in crit]
+            extra = [c for c in crit if c not in VENDOR_CRITERIA]
+            if miss or extra:
+                raise APHError(f"criteria phải có đúng 6 tiêu chí {VENDOR_CRITERIA}; thiếu {miss}, thừa {extra}")
+            allowed = SCHEMA["enums"]["vendor_criterion_status"]
+            for c, v in crit.items():
+                if not isinstance(v, dict) or v.get("status") not in allowed:
+                    raise APHError(f"criteria.{c} cần status thuộc {allowed}")
+                if v["status"] in ("verified", "stated"):
+                    if not v.get("source_url") or len((v.get("evidence_excerpt") or "").strip()) < 8:
+                        raise APHError(f"criteria.{c} status={v['status']} cần source_url và evidence_excerpt chép nguyên văn")
+                    own = {domain("https://" + x) for x in [d["vendor_key"], *d.get("vendor_domains", [])]}
+                    if v["status"] == "verified" and domain(v["source_url"]) in own:
+                        raise APHError(f"criteria.{c}: verified phải đối chiếu từ nguồn độc lập, không phải trang của chính NCC (dùng stated)")
+                if v["status"] in ("user_input", "missing") and not (v.get("value") or v.get("note")):
+                    raise APHError(f"criteria.{c} status={v['status']} cần value hoặc note")
         if kind == "solution" and d["fit"] == "bundle_component" and not d.get("bundle_with"):
             raise APHError("fit=bundle_component cần bundle_with (danh sách product_id cùng bộ)")
         if kind in ("demand", "trend") and not d["evidence"]:
@@ -759,6 +782,38 @@ def duplicates(store: Store):
     return out
 
 
+VENDOR_CRITERIA = ["legal_entity", "address", "invoice", "warranty", "supply_capacity", "moq_payment"]
+VENDOR_LABELS = {"legal_entity": "Pháp nhân", "address": "Địa chỉ", "invoice": "Xuất hóa đơn", "warranty": "Bảo hành",
+                 "supply_capacity": "Khả năng cung ứng", "moq_payment": "MOQ và thanh toán"}
+VENDOR_POINTS = {"verified": 2, "user_input": 2, "stated": 1, "missing": 0}
+
+
+def vendor_assessment(rec):
+    """Chấm 1 bản đánh giá NCC: verified/user_input = 2, NCC tự ghi = 1, thiếu = 0; tối đa 12.
+    Mức 'high' cần pháp nhân đã đối chiếu (verified/user_input) và không thiếu tiêu chí nào."""
+    crit = rec["criteria"]
+    score = sum(VENDOR_POINTS[crit[c]["status"]] for c in VENDOR_CRITERIA)
+    missing = [c for c in VENDOR_CRITERIA if crit[c]["status"] == "missing"]
+    legal_ok = crit["legal_entity"]["status"] in ("verified", "user_input")
+    if score >= 9 and legal_ok and not missing:
+        level = "high"
+    elif score >= 6 and crit["legal_entity"]["status"] != "missing":
+        level = "medium"
+    else:
+        level = "low"
+    return {"vendor_key": rec["vendor_key"], "vendor_name": rec["vendor_name"], "review_id": rec["id"], "score": score, "max": 12,
+            "level": level, "legal_entity_confirmed": legal_ok,
+            "ask_vendor": [VENDOR_LABELS[c] for c in missing],
+            "only_self_stated": [VENDOR_LABELS[c] for c in VENDOR_CRITERIA if crit[c]["status"] == "stated"]}
+
+
+def list_vendors(store: Store):
+    latest = {}
+    for r in store.records(kind="vendor_review"):
+        latest[r["vendor_key"]] = r
+    return sorted((vendor_assessment(r) for r in latest.values()), key=lambda x: -x["score"])
+
+
 def list_problems(store: Store):
     recs = store.records()
     out = []
@@ -955,6 +1010,7 @@ def main(argv=None):
     s = sub.add_parser("show"); s.add_argument("--product", required=True)
     sub.add_parser("list")
     sub.add_parser("duplicates")
+    sub.add_parser("vendors", help="Đánh giá nhà cung cấp theo 6 tiêu chí (bản mới nhất mỗi NCC)")
     sub.add_parser("problems", help="Liệt kê vấn đề khách hàng và sản phẩm/bộ giải pháp gắn với từng vấn đề")
     s = sub.add_parser("trend", help="Phân loại giai đoạn xu hướng từ chuỗi theo tuần; ghi bản ghi trend trừ khi --dry")
     s.add_argument("--run"); s.add_argument("--product", required=True); s.add_argument("--dry", action="store_true")
@@ -1029,6 +1085,8 @@ def main(argv=None):
             res = list_products(st)
         elif a.cmd == "problems":
             res = list_problems(st)
+        elif a.cmd == "vendors":
+            res = list_vendors(st)
         elif a.cmd == "trend":
             res = trend_assess(st, a.product)
             if not a.dry:
