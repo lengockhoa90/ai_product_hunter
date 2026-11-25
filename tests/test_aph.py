@@ -1145,3 +1145,92 @@ class TestAgent07Completion(Agent07Base):
         ev = aph.score(self.st, pid, {"demand": {"score": 5, "why": "x"}})
         self.assertEqual(ev["weights_version"], "v1")
         self.assertIn("suggested_research_status", aph.gate(ev))
+
+
+class TestDemandAnalyst(Agent07Base):
+    """Agent 03 Demand Analyst: tổng hợp nhu cầu theo model, không suy diễn ngoài dữ liệu."""
+
+    def dem(self, pid, theme, aspect, mentions, sample, platform="lazada", **kw):
+        src = self.obs(pid, metric="complaint_mention", url=f"https://{platform}.example/review", value=mentions,
+                       evidence_excerpt=f"{mentions} đánh giá: {theme}")
+        d = {"product_id": pid, "type": "complaint", "theme": theme, "evidence": [src["id"]], "aspect": aspect,
+             "mentions": mentions, "sample_size": sample, "platform": platform, "variant_key": self.V, **kw}
+        return self.st.append(self.run, "demand", d)
+
+    def test_no_data_stays_unknown(self):
+        pid = self.product()["product_id"]
+        d = aph.demand_analysis(self.st, pid, None)
+        self.assertIsNone(d["demand_score"]["score"])
+        self.assertIsNone(d["velocity"])
+        self.assertTrue(all(q["answer"].startswith("UNKNOWN") for q in d["questions"]))
+        self.assertEqual(d["seasonality"]["status"], "unknown")
+        self.assertTrue(d["missing_data"])
+
+    def test_presence_vs_velocity_and_platforms(self):
+        pid = self.strong(real_cost=False)
+        d = aph.demand_analysis(self.st, pid, self.V)
+        self.assertEqual(d["demand_score"]["level"], "velocity")
+        self.assertEqual(d["velocity"]["listings_measured"], 3)
+        self.assertEqual(set(d["platform_differences"]), {"lazada", "shopee"})
+        self.assertIsNotNone(d["platform_differences"]["shopee"]["units_per_30d"])
+        self.assertIn("tiktok_shop", " ".join(d["missing_data"]))
+
+    def test_review_themes_small_sample_flagged(self):
+        pid = self.strong(real_cost=False)
+        self.dem(pid, "Pin nhanh hết", "pain_point", 2, 12)
+        self.dem(pid, "Kết nối WiFi rớt", "return_reason", 9, 60)
+        self.dem(pid, "Chống trộm khi đi vắng", "buying_reason", 5, 60, type="purchase_intent")
+        d = aph.demand_analysis(self.st, pid, self.V)
+        pain = {t["theme"]: t for t in d["pain_points"]}
+        self.assertIn("mẫu nhỏ", pain["Pin nhanh hết"]["reliability"])
+        self.assertEqual(d["non_buy_reasons"][0]["share"], 0.15)
+        self.assertIn("lặp lại", d["non_buy_reasons"][0]["reliability"])
+        self.assertEqual(d["buying_motivations"][0]["theme"], "Chống trộm khi đi vắng")
+
+    def test_other_model_demand_excluded(self):
+        pid = self.strong(real_cost=False)
+        self.dem(pid, "Lỗi của model khác", "pain_point", 5, 50, variant_key="model-khac-zigbee")
+        d = aph.demand_analysis(self.st, pid, self.V)
+        self.assertEqual(d["pain_points"], [])
+
+    def test_seasonality_needs_a_year(self):
+        pid = self.product()["product_id"]
+        short = [{"t": self.day(7 * i), "v": 10 + i} for i in range(20)]
+        self.obs(pid, metric="search_interest", url="https://trends.google.com/s", value=10, series=short)
+        self.assertEqual(aph.demand_analysis(self.st, pid, None)["seasonality"]["status"], "unknown")
+        year = [{"t": self.day(7 * i), "v": 60 if (self.TODAY - dt.timedelta(days=7 * i)).month == 6 else 20} for i in range(53)]
+        self.obs(pid, metric="search_interest", url="https://trends.google.com/y", value=20, series=year)
+        s = aph.demand_analysis(self.st, pid, None)["seasonality"]
+        self.assertEqual((s["status"], s["peak_months"]), ("indicative", [6]))
+
+    def test_engagement_is_not_sales(self):
+        pid = self.product()["product_id"]
+        self.obs(pid, metric="content_signal", url="https://www.tiktok.com/v", value=500000, platform="tiktok")
+        d = aph.demand_analysis(self.st, pid, None)
+        self.assertEqual(len(d["engagement"]["signals"]), 1)
+        self.assertIsNone(d["velocity"])
+        self.assertTrue(d["questions"][0]["answer"].startswith("UNKNOWN"))
+
+    def test_invalid_aspect_rejected(self):
+        pid = self.product()["product_id"]
+        o = self.obs(pid, metric="complaint_mention")
+        with self.assertRaises(aph.APHError):
+            self.st.append(self.run, "demand", {"product_id": pid, "type": "complaint", "theme": "x", "evidence": [o["id"]], "aspect": "doan_mo"})
+
+    def test_cli_rerun_not_duplicated_and_not_input_to_evaluator(self):
+        import contextlib, io
+        pid = self.strong(real_cost=False)
+        def cli(*args):
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = aph.main(["--data", self.tmp.name, *args])
+            self.assertEqual(rc, 0, buf.getvalue())
+            return json.loads(buf.getvalue())
+        out = pathlib.Path(self.tmp.name) / "demand.md"
+        a = cli("demand", "--run", self.run, "--product", pid, "--variant", self.V, "--out", str(out))
+        b = cli("demand", "--run", self.run, "--product", pid, "--variant", self.V)
+        self.assertEqual((a[0]["write"], b[0]["write"]), ("new", "unchanged"))
+        self.assertEqual(len(self.st.records(pid, "demand_analysis")), 1)
+        self.assertIn("Có nhu cầu thật không", out.read_text(encoding="utf-8"))
+        snap = {x["kind"] for x in aph.evaluate(self.st, pid, self.V)["input_snapshot"]}
+        self.assertNotIn("demand_analysis", snap)
