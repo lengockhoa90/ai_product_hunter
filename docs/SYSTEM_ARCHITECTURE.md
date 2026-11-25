@@ -1,6 +1,6 @@
 # AI PRODUCT HUNTER — SYSTEM ARCHITECTURE
 
-> Phiên bản: 0.5 (0.4: Problem-based Discovery, Demand Analyst, Data Confidence, Profit Analyst, kết hợp nguồn; 0.5: Agent 07 chấm điểm v2 theo model, Risk Gates, `variant_link`) · Ngày: 2026-11-24
+> Phiên bản: 0.6 (0.4: Problem-based Discovery, Demand Analyst, Data Confidence, Profit Analyst, kết hợp nguồn; 0.5: Agent 07 chấm điểm v2 theo model, Risk Gates, `variant_link`; 0.6: hồ sơ model `variant_profile`, Nhu cầu tách Presence/Velocity, xu hướng gián tiếp, Gate Tài chính cần giá vốn đã xác minh, scoring v2.1) · Ngày: 2026-11-24
 > Trạng thái từng thành phần: xem bảng trạng thái ở đầu `IMPLEMENTATION_ROADMAP.md`.
 > Thay đổi so với 0.1: gộp bản ghi theo run vào `records/` (0.2); mô hình vận hành bán tự động, bỏ dự phòng Cowork desktop, quy tắc một người ghi, phân tầng theo dõi, xử lý lỗi lịch, bắt buộc `evidence_excerpt`, tách việc Demand/Competitor (0.3); mục 3.6–3.8, 4.2, 4.4, 4.5 (0.4).
 > Phạm vi: kiến trúc tổng thể, phối hợp Agent, mô hình dữ liệu, lưu trữ, lập lịch, giới hạn kỹ thuật.
@@ -306,6 +306,26 @@ Chi tiết và lý do: `docs/AGENT_07_AUDIT_DESIGN.md` mục 7 (anh Khoa duyệt
 - Product Identity: bản ghi theo model khác `variant_key` bị loại; chưa gán model cũng bị loại; model < 3 tin đăng, giá trải rộng (P75/P25 > 1,4) hoặc NCC chưa gán model → Gate chưa đủ.
 - Append-only: mỗi lần chạy thêm bản ghi `evaluation` mới với `input_snapshot` (id + thời điểm đầu vào); `eval-diff` so sánh hai lần và chỉ ra bản ghi mới/bị rút lại gây thay đổi.
 - Chấm điểm v1 (`aph.py score`, 7 tiêu chí, mục 4.4) giữ nguyên để đọc lịch sử.
+
+### 4.7 Agent 07 hoàn thiện: scoring v2.1 (0.6)
+
+Lý do: báo cáo v2 dùng tên nhóm sản phẩm thay cho model, coi một lần chụp nhãn "đã bán" là nhu cầu, áp xu hướng cấp sản phẩm như của model, và bảng xếp hạng không theo điểm. Thay đổi đều **thêm vào** (trường tùy chọn, kind mới), không đổi bản ghi cũ; đánh giá v2 vẫn đọc được, `eval-diff` so v2 ↔ v2.1.
+
+- **Hồ sơ model** (kind mới `variant_profile`): `brand`, `model_name`, `protocol` (enum `wifi, ble, ble_mesh, zigbee, rf, wifi_zigbee, mixed, unknown`), `app_ecosystem`, `versions`, `is_group`. Công cụ kiểm tra đoạn trích nguyên văn, hãng và giao thức có trong bằng chứng của đúng model; `mixed`/`wifi_zigbee` bắt buộc `is_group`. Khóa nhóm → Gate Identity chưa đủ. Tin đăng ghi giao thức khác hồ sơ → cảnh báo Identity. Báo cáo hiển thị `hãng · model · giao thức · app`.
+- **Nhu cầu** = Presence (có mặt: số tin, shop, sàn, nhãn lũy kế; trần 50 điểm; Gate chưa đủ) + Velocity (cùng URL đo lại cách ≥ 7 ngày, quy về sp/30 ngày; Gate đạt ≥ 30, trượt < 5 trên ≥ 3 tin). Listing có thêm `observed_at` tùy chọn.
+- **Xu hướng**: trend có `variant_key` (trường tùy chọn mới) là trực tiếp; trend cấp sản phẩm là gián tiếp, độ tin cậy × 0,5.
+- **Tài chính**: giữ công thức; Gate chỉ đạt khi giá vốn đã xác minh (`dealer_quote` do người dùng cung cấp/quan sát, hoặc `user:`) của đúng model và bản ghi lợi nhuận không có chi phí ước tính/thiếu/không nguồn, hoặc giá vốn đã xác minh ≤ trần giá nhập đầy đủ. Giá sỉ/lẻ niêm yết không qua Gate.
+- **Xếp hạng**: `ranking --by score` (giảm dần theo điểm) tách khỏi `--by verification` (thứ tự ưu tiên xác minh), mỗi bảng ghi tiêu chí.
+- **Chống trùng**: `evaluate` không ghi khi đầu vào, trạng thái, điểm và Gate không đổi (`--force` để ghi); `variant_link`/`variant_profile` trùng nội dung trả bản ghi cũ.
+- **`readiness`**: liệt kê đầu vào đủ/thiếu cho từng model và Agent phụ trách; Orchestrator dùng nó ở luồng 10 bước (skill `aph-orchestrator` mục 4).
+
+### 4.8 Agent 03 Demand Analyst (0.6)
+
+Lệnh `aph.py demand` (config `config/demand_analysis.json`), skill `dtm-demand-analyst`. Chỉ đọc kho; dùng cùng bộ lọc model và quy tắc Presence/Velocity của Agent 07 để hai Agent không mâu thuẫn.
+- Tách 4 loại nhu cầu: tìm kiếm (`search_interest`, `csi_popularity`, `search_keyword`), tương tác (`content_signal`…, chỉ là chú ý), bán hàng (Presence/Velocity), đánh giá (`review_count` + `demand` theo chủ đề).
+- `demand` có thêm trường tùy chọn `aspect` (enum `demand_aspect`), `mentions`, `sample_size`, `platform`, `observed_at`, `source_url`, `evidence_excerpt`. Bản ghi cũ không có `aspect` được suy từ `type`.
+- Kind mới `demand_analysis`: kết quả 9 câu hỏi + `input_snapshot`, append-only, chạy lại không đổi → không ghi. Không là đầu vào chấm điểm (nằm trong `SKIP_KINDS`).
+- Quy tắc: mẫu nhỏ được gắn nhãn; mùa vụ cần ≥ 350 ngày dữ liệu, 1 năm chỉ là chỉ báo.
 
 ### 4.5 Lợi nhuận
 

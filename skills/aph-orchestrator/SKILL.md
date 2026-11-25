@@ -37,7 +37,7 @@ Trước khi nghiên cứu một sản phẩm: `aph.py match --name "<tên>" --f
 - Không có → `add-product --run <run_id> --json '{...}'` (category theo `config/categories.json`).
 
 ## 3. Chạy từng Agent
-Mỗi Agent có skill riêng tên `dtm-<agent>`. Đã có: `skills/dtm-market-hunter/SKILL.md` (Agent 01), `skills/dtm-trend-hunter/SKILL.md` (Agent 02, giai đoạn xu hướng qua `aph.py trend`), `skills/dtm-supplier-hunter/SKILL.md` (Agent 05), `skills/dtm-profit-analyst/SKILL.md` (Agent 06), `skills/dtm-opportunity-evaluator/SKILL.md` (Agent 07, bước `evaluator` trong bảng mục 1). Chưa có: Agent 03, 04. Khi skill Agent chưa có, làm theo mục tiêu/đầu ra trong `docs/SYSTEM_ARCHITECTURE.md` và `rules/`. Với mỗi Agent:
+Mỗi Agent có skill riêng tên `dtm-<agent>`. Đã có: `skills/dtm-market-hunter/SKILL.md` (Agent 01), `skills/dtm-trend-hunter/SKILL.md` (Agent 02, giai đoạn xu hướng qua `aph.py trend`), `skills/dtm-supplier-hunter/SKILL.md` (Agent 05), `skills/dtm-profit-analyst/SKILL.md` (Agent 06), `skills/dtm-opportunity-evaluator/SKILL.md` (Agent 07, bước `evaluator` trong bảng mục 1), `skills/dtm-demand-analyst/SKILL.md` (Agent 03, bước `demand`, lệnh `aph.py demand`). Chưa có: Agent 04. Khi skill Agent chưa có, làm theo mục tiêu/đầu ra trong `docs/SYSTEM_ARCHITECTURE.md` và `rules/`. Với mỗi Agent:
 - Thu thập qua trình duyệt Claude trên PC (`mcp__remote-devices__Claude_Browser__*`) hoặc WebSearch; đọc trang bằng `get_page_text` hoặc `javascript_tool` (đợi 3–5 giây).
 - Ghi ngay từng dữ liệu bằng `aph.py add --run --kind observation|listing|supplier|demand|trend --json ...`. Dữ liệu `observed` phải có `evidence_excerpt` chép nguyên văn từ trang.
 - Shopee: khi gặp CAPTCHA, dừng và nhờ người dùng tự giải trong khung trình duyệt; chỉ đọc tiếp sau khi họ báo xong. Không bao giờ tự giải.
@@ -54,7 +54,18 @@ Một người ghi: nếu `runs/` có run khác chưa kết thúc (dưới 2 gi�
 
 ## 4. Cổng kiểm tra
 - Lợi nhuận: `aph.py profit --run --product --platform shopee|tiktok_shop --inputs @file.json`. Mỗi đầu vào kèm `ref` (id observation, `assumption:<id>` trong `data/assumptions/assumptions.json`, hoặc `user:<ghi chú>`). Phí sàn (`platform_fee_pct`, `payment_fee_pct`) chỉ nhận `assumption:` có nguồn, ngày, đúng sàn, đúng ngành hàng, đúng loại shop, còn hiệu lực; sai → `unverified_fees`. Kết quả `incomplete` → không kết luận lợi nhuận. Shopee (shop thường): mặc định dùng tổng phí 27% do người dùng chốt, `platform_fee_pct` 27 và `payment_fee_pct` 0, cả hai ref `assumption:shopee_total_fee_pct_user`. TikTok Shop: tương tự với `assumption:tiktok_shop_total_fee_pct_user` (27%).
-- Đánh giá (bước `evaluator`): theo skill `dtm-opportunity-evaluator`: `aph.py evaluate --run --product <id> [--variant <model>]` (trọng số v2, 5 nhóm, Risk Gates, GO / CONDITIONAL GO / NEED MORE DATA / NO GO, theo từng model). Lệnh cũ `aph.py score` (v1, 7 tiêu chí) chỉ giữ để đọc lịch sử.
+- Đánh giá (bước `evaluator`): theo skill `dtm-opportunity-evaluator`, luồng 10 bước:
+  1. Nhận yêu cầu, `new-run`, xác định sản phẩm (`match`).
+  2. Xác định model: `aph.py show --product <id>`; model chưa có hồ sơ → ghi `variant_profile` (hãng, model, giao thức, app, phiên bản, nguyên văn từ bằng chứng).
+  3. `aph.py readiness --product <id>`: đủ / thiếu từng đầu vào và Agent phụ trách.
+  4. Chỉ chạy Agent còn thiếu (01–06) theo readiness; không thu thập lại cái đã có.
+  5. Gán model cho bản ghi cũ khi chính bản ghi ghi rõ model (`variant_link`).
+  6. `aph.py evaluate --run --product <id> [--variant <model>]` (trọng số v2.1, 5 nhóm, Risk Gates, theo từng model). Chạy lại không ghi trùng.
+  7. Kiểm tra Gate: Nhu cầu cần Velocity (không chỉ Presence), Tài chính cần giá vốn đã xác minh và đủ chi phí.
+  8. `aph.py eval-diff` so với lần trước; `aph.py ranking --by score|verification`.
+  9. `aph.py eval-report --out … --run <run>`, viết phần đầu báo cáo.
+  10. `finish-run`, `reindex`, báo cho người dùng việc cần họ cung cấp.
+  Lệnh cũ `aph.py score` (v1, 7 tiêu chí) chỉ giữ để đọc lịch sử.
 - Sau đánh giá: chỉ chạy Agent mà `next_actions` cần, không chạy lại toàn bộ. Việc có owner "Anh Khoa" → liệt kê cho người dùng.
 - Trạng thái nghiên cứu: `suggested_research_status` chỉ là đề xuất; ghi `aph.py set-status --run --product --research <status> --reason "<lý do>" --by orchestrator` khi người dùng đồng ý.
 

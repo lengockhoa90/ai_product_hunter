@@ -18,12 +18,22 @@ Agent 07 **chỉ đọc kho**: không thu thập lại dữ liệu Agent 01–06
 3. Bản ghi theo model (tin đăng, NCC, giá, trần giá nhập, lợi nhuận) chưa có `variant_key` thì bị loại. Chỉ gán model khi chính bản ghi ghi rõ model:
    `aph.py add --run <run> --kind variant_link --json '{"product_id":..,"variant_key":..,"target":"sup_…","reason":"…","evidence_excerpt":"<chép nguyên văn từ tên/ghi chú/đoạn trích của bản ghi đích>","by":"opportunity_evaluator"}'`.
    Không chắc (ví dụ không rõ có phải bản cảm ứng) → **không gán**, để Gate Identity báo chưa đủ. Không gán một NCC cho model khác giao thức (WiFi, BLE, Zigbee là model khác nhau).
+4. Mỗi model cần **hồ sơ model** (`variant_profile`) để báo cáo ghi đúng hãng, tên model, giao thức, app, phiên bản (không dùng tên nhóm như "Cảm biến cửa WiFi/Zigbee Tuya" cho model Hunonic):
+   `aph.py add --run <run> --kind variant_profile --json '{"product_id":..,"variant_key":..,"brand":"Hunonic","model_name":"…","protocol":"wifi|ble|ble_mesh|zigbee|rf|wifi_zigbee|mixed|unknown","app_ecosystem":"…","versions":[…],"evidence":["lis_…"],"evidence_excerpt":"<nguyên văn>","by":"opportunity_evaluator"}'`.
+   Công cụ kiểm tra: bằng chứng phải là bản ghi của đúng model, đoạn trích nguyên văn, hãng và giao thức phải xuất hiện trong bằng chứng. Khóa gom nhiều hãng/giao thức → `"is_group":true` + `group_note`; Gate Identity chưa đủ cho tới khi tách model. Giao thức không ghi rõ → `unknown`, không đoán.
+5. `aph.py readiness --product <id> [--variant <v>]`: liệt kê đủ / thiếu từng đầu vào và Agent phụ trách, trước khi đánh giá.
 
 ## 2. Đánh giá (chỉ bằng công cụ)
 - Một model: `aph.py evaluate --run <run> --product <id> --variant <v>`; mọi model của sản phẩm: bỏ `--variant`; toàn kho: `--all`. Xem trước: `--dry`.
 - Công cụ tự tính 5 nhóm (0–100), `weight_coverage`, Data Confidence, 5 Gate, trạng thái, rủi ro, việc tiếp theo. Nhóm thiếu dữ liệu = null ("chưa chấm"), không phải 0.
 - Nhận định AI (tùy chọn, chỉ Nhu cầu và Cạnh tranh, chỉ một model): `--judgments '{"competition":{"score":..,"reason":"..","evidence":["lis_…"]}}'`. Công cụ chỉ cho lệch ±10 điểm so với điểm tính được, không vượt trần nhóm, evidence phải là bản ghi đầu vào của đúng model; ghi `basis=ai_judgment`. Không dùng để "đẩy" điểm khi thiếu dữ liệu.
 - Không tự cộng điểm, không tự đổi trọng số hay ngưỡng trong config.
+- Chạy lại cùng dữ liệu không ghi bản ghi trùng (`write: unchanged`); `--force` chỉ khi có lý do.
+
+### Quy tắc v2.1 (config `v2.1`; điểm v1 và v2 cũ vẫn đọc được)
+- **Nhu cầu = Presence + Velocity.** Một lần chụp (kể cả nhiều sàn) chỉ là Presence: điểm tối đa 50, Gate Nhu cầu chưa đủ. Velocity chỉ có khi đo lại nhãn "đã bán" của **cùng URL** cách nhau ≥ 7 ngày (quy về sp/30 ngày). Gate đạt khi ≥ 30 sp/30 ngày; trượt khi < 5 sp/30 ngày trên ≥ 3 tin.
+- **Xu hướng:** trend có `variant_key` đúng model là trực tiếp; trend cấp sản phẩm áp cho model là **bằng chứng gián tiếp** (độ tin cậy × 0,5).
+- **Tài chính:** chỉ đạt khi giá vốn đã xác minh (báo giá đại lý anh Khoa cung cấp, hoặc quan sát được) của đúng model và đủ chi phí thật (không có chi phí ước tính/thiếu). Giá bán lẻ hay giá sỉ niêm yết của NCC không phải giá vốn.
 
 ## 3. Đọc kết quả
 | Trạng thái | Khi nào |
@@ -36,7 +46,7 @@ Xu hướng không phải Gate; `unknown` giữ nguyên là null. Đề xuất `
 
 ## 4. So sánh và báo cáo
 1. `aph.py eval-diff --product <id> --variant <v>` (2 lần gần nhất, hoặc `--a/--b`): đổi điểm, độ tin cậy, trạng thái, Gate, và bản ghi đầu vào mới / bị rút lại (nguyên nhân).
-2. `aph.py ranking`; `aph.py eval-report --out /mnt/project-files/ai-product-hunter/reports/daily/<ngày>_opportunity-evaluator_<chủ-đề>.md --run <run>` (bảng xếp hạng + 16 mục mỗi model).
+2. `aph.py ranking --by score` (Opportunity Score giảm dần) hoặc `--by verification` (thứ tự ưu tiên xác minh, không phải xếp hạng cơ hội); `aph.py eval-report --out /mnt/project-files/ai-product-hunter/reports/daily/<ngày>_opportunity-evaluator_<chủ-đề>.md --run <run>` (2 bảng có tên và tiêu chí riêng + 16 mục mỗi model; mục 15 giải thích vì sao ra trạng thái).
 3. Viết phần đầu báo cáo: **Kết luận** (trạng thái từng model, điều gì chặn GO), **Dữ liệu cần anh bổ sung** (từ `next_actions` có owner "Anh Khoa"), **Nhận định của AI** tách riêng, **Giới hạn**.
 4. `aph.py finish-run …`, `aph.py reindex`.
 5. Việc của Agent khác: chỉ đề xuất theo `next_actions` (Orchestrator quyết định chạy Agent nào), không tự chạy lại toàn bộ.

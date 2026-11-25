@@ -1,0 +1,18 @@
+{
+  "version": "d1",
+  "_doc": "Agent 03 Demand Analyst. Tách 4 loại nhu cầu: tìm kiếm, tương tác, bán hàng, đánh giá. Không suy diễn ngoài dữ liệu trong kho.",
+  "search_metrics": ["search_interest", "csi_popularity", "search_volume", "search_suggestion"],
+  "engagement_metrics": ["content_signal", "video_views", "video_likes", "post_engagement"],
+  "keyword_metrics": ["search_keyword", "search_suggestion"],
+  "review_metrics": ["complaint_mention", "review_count", "rating"],
+  "aspect_from_type": {
+    "complaint": "pain_point", "unmet_need": "pain_point", "question": "question",
+    "purchase_intent": "buying_reason", "product_demand": "buying_reason",
+    "price_acceptance": "price", "price_sensitivity": "price", "alternative_solution": "alternative"
+  },
+  "small_sample_reviews": 30,
+  "min_mentions_for_pattern": 3,
+  "seasonality_min_days": 350,
+  "seasonality_min_points": 40,
+  "seasonality_peak_ratio": 1.3
+}
