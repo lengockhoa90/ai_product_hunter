@@ -606,7 +606,9 @@ class TestProfitAnalyst(Base):
     """Agent 06: giá bán thị trường, ghép đầu vào từ kho, giá nhập tối đa."""
 
     def listing(self, pid, price, **kw):
-        d = {"product_id": pid, "platform": "lazada", "url": "https://lazada.vn/x", "verification": "observed",
+        # mỗi lần gọi là một tin đăng khác nhau (URL riêng): price_stats chỉ tính mỗi tin một lần
+        self._n = getattr(self, "_n", 0) + 1
+        d = {"product_id": pid, "platform": "lazada", "url": f"https://lazada.vn/x{self._n}", "verification": "observed",
              "price_vnd": price, "evidence_excerpt": f"Cảm biến cửa Zigbee ₫{price:,}", **kw}
         return self.st.append(self.run, "listing", d)
 
@@ -1245,7 +1247,10 @@ class TestCompetitorAnalyst(DemandBase):
     def test_no_listings_no_distribution(self):
         pid = self.product()["product_id"]
         d = aph.competitor_analysis(self.st, pid, None)
-        self.assertEqual((d["competitor_count"]["listings"], d["price_distribution"]), (0, {}))
+        # chưa thu thập: số tin/shop là UNKNOWN (None), không phải 0, và không suy ra lợi thế
+        self.assertEqual((d["competitor_count"]["listings"], d["competitor_count"]["shops"], d["price_distribution"]), (None, None, {}))
+        self.assertEqual(d["competitor_state"]["state"], "not_collected")
+        self.assertEqual(d["advantages"], [])
         self.assertIsNone(d["competitor_score"]["score"])
         self.assertIsNone(d["brand_concentration"]["basis"])
 
@@ -1319,3 +1324,100 @@ class TestPipelineIntegration(DemandBase):
         self.assertEqual(third[go]["writes"]["evaluation"], "new")
         self.assertEqual(len(self.st.records(go, "demand_analysis")), 2)
         self.assertEqual(len(self.st.records(go, "evaluation")), 2)
+
+
+class TestPhase5Integrity(DemandBase):
+    """Giai đoạn 5: nhãn bán chính xác/làm tròn, cùng một tin đăng, tin nhiều phân loại, trạng thái đối thủ, NCC theo pháp nhân."""
+
+    def test_sold_label_precision(self):
+        cases = {"552 sold": (552, "exact"), "16 Đã bán": (16, "exact"), "2k+ sold": (2000, "rounded"), "1,2k": (1200, "rounded"),
+                 "2.600+": (2600, "rounded"), "Đã bán 349": (349, "exact"), None: (None, "unknown")}
+        for label, (v, p) in cases.items():
+            info = aph.sold_label_info(label)
+            self.assertEqual((info["value"], info["precision"]), (v, p), label)
+
+    def test_listing_key_same_listing_across_url_forms(self):
+        a = aph.listing_key({"url": "https://shopee.vn/product/1112786088/28767858796", "platform": "shopee"})
+        b = aph.listing_key({"url": "https://shopee.vn/Cong-Tac-i.1112786088.28767858796?sp_atk=x", "platform": "shopee"})
+        c = aph.listing_key({"url": "https://shopee.vn/product/1112786088/28767858797", "platform": "shopee"})
+        self.assertEqual(a, b)
+        self.assertNotEqual(a, c)
+        self.assertEqual(aph.listing_key({"url": "https://www.lazada.vn/products/x-i2589082813-s1.html?q=1"}), "lazada:2589082813")
+
+    def test_velocity_same_listing_other_url_form(self):
+        pid = self.product()["product_id"]
+        for shop, item in (("1", "11"), ("2", "22"), ("3", "33")):
+            self.listing(pid, 300000, f"s{shop}", "shopee", url=f"https://shopee.vn/product/{shop}/{item}", sold=100, observed_at=self.day(14))
+            self.listing(pid, 300000, f"s{shop}", "shopee", url=f"https://shopee.vn/Ten-i.{shop}.{item}", sold=130, observed_at=self.day(0))
+        g = self.ev(pid)["groups"]["demand"]
+        self.assertEqual(g["level"], "velocity")
+        self.assertEqual(g["velocity"]["listings_measured"], 3)
+        self.assertEqual(g["presence"]["listings"], 3)  # 6 bản ghi nhưng chỉ 3 tin đăng
+
+    def test_rounded_labels_never_give_velocity(self):
+        pid = self.product()["product_id"]
+        for i in range(3):
+            self.listing(pid, 300000, f"s{i}", "shopee", url=f"https://shopee.vn/product/{i}/9", sold_label="1k+ sold", observed_at=self.day(14))
+            self.listing(pid, 300000, f"s{i}", "shopee", url=f"https://shopee.vn/product/{i}/9", sold_label="2k+ sold", observed_at=self.day(0))
+        e = self.ev(pid)
+        self.assertEqual(e["groups"]["demand"]["level"], "presence")
+        self.assertTrue(any("làm tròn" in r for r in e["risks"]))
+        self.assertEqual(e["groups"]["demand"]["presence"]["sold_labels_rounded"], 3)
+
+    def test_different_listings_never_compared(self):
+        pid = self.product()["product_id"]
+        self.listing(pid, 300000, "a", "shopee", url="https://shopee.vn/product/1/1", sold=10, observed_at=self.day(14))
+        self.listing(pid, 300000, "b", "shopee", url="https://shopee.vn/product/1/2", sold=500, observed_at=self.day(0))
+        self.listing(pid, 300000, "c", "lazada", url="https://www.lazada.vn/products/pdp-i1.html", sold=900, observed_at=self.day(0))
+        self.assertEqual(self.ev(pid)["groups"]["demand"]["level"], "presence")
+
+    def test_multi_sku_listing_excluded_from_price_and_sold(self):
+        pid = self.product()["product_id"]
+        for i, p in enumerate((300000, 310000, 320000)):
+            self.listing(pid, p, f"s{i}", "shopee", url=f"https://shopee.vn/product/{i}/1", sold=10)
+        self.listing(pid, 99000, "multi", "shopee", url="https://shopee.vn/product/9/9", sold_label="3k+ sold",
+                     title="Cảm biến Hãng A WiFi 1, 2, 3 nút")  # heuristic tiêu đề
+        self.listing(pid, 98000, "multi2", "shopee", url="https://shopee.vn/product/8/8", sold=900, sku_scope="multi_sku")
+        e = self.ev(pid)
+        self.assertEqual(e["groups"]["competition"]["price"]["median"], 310000)
+        self.assertEqual(e["groups"]["demand"]["presence"]["cumulative_sold_label_total"], 30)
+        self.assertEqual(e["groups"]["demand"]["presence"]["listings_multi_sku"], 2)
+        ps = aph.price_stats(self.st, pid, variant=self.V)
+        self.assertEqual((ps["n"], ps["median"]), (3, 310000))
+        d = aph.competitor_analysis(self.st, pid, self.V)
+        self.assertEqual(d["competitor_count"]["shops"], 5)  # vẫn là shop đối thủ
+        self.assertEqual(d["price_distribution"]["shopee"]["median"], 310000)
+        self.assertEqual(d["price_distribution"]["shopee"]["excluded_multi_sku"], 2)
+
+    def test_competitor_states(self):
+        pid = self.product()["product_id"]
+        self.assertEqual(aph.competitor_analysis(self.st, pid, self.V)["competitor_state"]["state"], "not_collected")
+        self.obs(pid, metric="search_result_count", url="https://shopee.vn/search?keyword=x", value=0, variant_key=self.V,
+                 evidence_excerpt="0 kết quả")
+        d = aph.competitor_analysis(self.st, pid, self.V)
+        self.assertEqual((d["competitor_state"]["state"], d["competitor_count"]["shops"], d["advantages"]), ("searched_none_found", 0, []))
+        self.listing(pid, 300000, "s1", "shopee", url="https://shopee.vn/product/1/1")
+        d = aph.competitor_analysis(self.st, pid, self.V)
+        self.assertEqual((d["competitor_state"]["state"], d["advantages"]), ("insufficient", []))
+
+    def test_vendor_review_applies_by_domain(self):
+        pid = self.product()["product_id"]
+        old = self.supplier(pid, basis="retail_listed", price=300000, quote_status="need_quote", variant="khac")
+        self.review([old["id"]])
+        new = self.supplier(pid, basis="retail_listed", price=310000, quote_status="need_quote")  # cùng hang-a.example, đúng model
+        g = self.ev(pid)["groups"]["supplier"]
+        self.assertIsNotNone(g["score"])
+        self.assertIn(new["id"], g["evidence_ids"])
+
+    def test_remeasure_plan_no_records_and_due_dates(self):
+        pid = self.product()["product_id"]
+        self.listing(pid, 300000, "s1", "shopee", url="https://shopee.vn/product/1/1", sold=10, observed_at="2026-11-25")
+        self.listing(pid, 300000, "s2", "shopee", url="https://shopee.vn/product/2/2", sold_label="2k+ sold", observed_at="2026-11-25")
+        before = len(self.st.records())
+        plan = aph.remeasure_plan(self.st, dt.date(2026, 11, 25))
+        self.assertEqual(len(self.st.records()), before)  # chỉ đọc
+        self.assertEqual({r["due"] for r in plan["rows"]}, {"2026-12-02"})
+        self.assertEqual(plan["due"], 0)
+        rounded = [r for r in plan["rows"] if r["listing"] == "shopee:2.2"][0]
+        self.assertTrue(any("làm tròn" in w for w in rounded["warnings"]))
+        self.assertEqual(aph.remeasure_plan(self.st, dt.date(2026, 12, 2))["due"], 2)

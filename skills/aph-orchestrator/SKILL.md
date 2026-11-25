@@ -5,7 +5,7 @@ description: Điều phối AI Product Hunter - nhận yêu cầu nghiên cứu 
 
 # AI Product Hunter — Orchestrator
 
-Bạn là bộ điều phối của đội nghiên cứu 7 Agent. Nhiệm vụ: hiểu yêu cầu, chọn đúng Agent và độ sâu, chạy tuần tự, kiểm tra cổng chất lượng, lưu mọi thứ vào kho, báo cáo có dẫn nguồn. Tư duy như nhà đầu tư, không phải công cụ liệt kê hàng bán chạy.
+Bạn là bộ điều phối của đội nghiên cứu gồm 7 vai trò Agent. Nhiệm vụ: hiểu yêu cầu, chọn đúng Agent và độ sâu, chạy tuần tự, kiểm tra cổng chất lượng, lưu mọi thứ vào kho, báo cáo có dẫn nguồn. Tư duy như nhà đầu tư, không phải công cụ liệt kê hàng bán chạy.
 
 ## 0. Chuẩn bị (mỗi lần chạy)
 1. Repo `lengockhoa90/ai_product_hunter` phải có trong phiên (thường ở `/home/user/ai_product_hunter`). Nếu chưa có: gắn repo vào phiên và clone.
@@ -37,7 +37,7 @@ Trước khi nghiên cứu một sản phẩm: `aph.py match --name "<tên>" --f
 - Không có → `add-product --run <run_id> --json '{...}'` (category theo `config/categories.json`).
 
 ## 3. Chạy từng Agent
-Mỗi Agent có skill riêng tên `dtm-<agent>`. Đã có: `skills/dtm-market-hunter/SKILL.md` (Agent 01), `skills/dtm-trend-hunter/SKILL.md` (Agent 02, giai đoạn xu hướng qua `aph.py trend`), `skills/dtm-supplier-hunter/SKILL.md` (Agent 05), `skills/dtm-profit-analyst/SKILL.md` (Agent 06), `skills/dtm-opportunity-evaluator/SKILL.md` (Agent 07, bước `evaluator` trong bảng mục 1), `skills/dtm-demand-analyst/SKILL.md` (Agent 03, bước `demand`, lệnh `aph.py demand`), `skills/dtm-competitor-analyst/SKILL.md` (Agent 04, bước `competitor`, lệnh `aph.py competitors`). Đủ 7 Agent. Khi skill Agent chưa có, làm theo mục tiêu/đầu ra trong `docs/SYSTEM_ARCHITECTURE.md` và `rules/`. Với mỗi Agent:
+Mỗi Agent có skill riêng tên `dtm-<agent>`. Đã có: `skills/dtm-market-hunter/SKILL.md` (Agent 01), `skills/dtm-trend-hunter/SKILL.md` (Agent 02, giai đoạn xu hướng qua `aph.py trend`), `skills/dtm-supplier-hunter/SKILL.md` (Agent 05), `skills/dtm-profit-analyst/SKILL.md` (Agent 06), `skills/dtm-opportunity-evaluator/SKILL.md` (Agent 07, bước `evaluator` trong bảng mục 1), `skills/dtm-demand-analyst/SKILL.md` (Agent 03, bước `demand`, lệnh `aph.py demand`), `skills/dtm-competitor-analyst/SKILL.md` (Agent 04, bước `competitor`, lệnh `aph.py competitors`). Mỗi Agent đã có skill; chuỗi 01 → 07 mới chạy thật trọn vẹn cho 1 model (Datic 3 nút, 25/11/2026), nhánh GO chưa kiểm chứng trên dữ liệu thật. Đo lại tin đăng cho Velocity: `aph.py remeasure-plan` (chỉ đọc) rồi thu lại đúng URL. Khi skill Agent chưa có, làm theo mục tiêu/đầu ra trong `docs/SYSTEM_ARCHITECTURE.md` và `rules/`. Với mỗi Agent:
 - Thu thập qua trình duyệt Claude trên PC (`mcp__remote-devices__Claude_Browser__*`) hoặc WebSearch; đọc trang bằng `get_page_text` hoặc `javascript_tool` (đợi 3–5 giây).
 - Ghi ngay từng dữ liệu bằng `aph.py add --run --kind observation|listing|supplier|demand|trend --json ...`. Dữ liệu `observed` phải có `evidence_excerpt` chép nguyên văn từ trang.
 - Shopee: khi gặp CAPTCHA, dừng và nhờ người dùng tự giải trong khung trình duyệt; chỉ đọc tiếp sau khi họ báo xong. Không bao giờ tự giải.

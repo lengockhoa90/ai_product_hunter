@@ -42,3 +42,9 @@ Bản ghi `demand` cho chủ đề đánh giá: `type` (complaint, purchase_inte
 
 ## Không được
 Bịa số đánh giá, chủ đề hay đoạn trích · khái quát từ vài đánh giá · coi lượt xem là nhu cầu mua · coi nhãn "đã bán" lũy kế là tốc độ bán · gộp đánh giá khác model · vượt CAPTCHA.
+
+## Giai đoạn 5 (25/11/2026): đo lại cho Velocity
+- Từ 01/12/2026: `python3 tools/aph.py remeasure-plan --due-only --out <file>` để lấy danh sách tin đến hạn (chỉ đọc, không ghi).
+- Đo lại đúng tin cũ (cùng sàn + mã tin), ghi listing mới cùng URL với `observed_at` = ngày đo và nhãn nguyên văn. Không ghi gì cho tin chưa đến hạn.
+- Nhãn làm tròn ('2k+', '1,2k') không cho ra tốc độ; chỉ nhãn số cụ thể ở cả 2 lần đo mới tính Velocity.
+- Shopee: tìm lại đúng mã `shop.item` trên trang tìm kiếm; Lazada: `catalog/?ajax=true` tìm đúng `pdp-i<mã>`.

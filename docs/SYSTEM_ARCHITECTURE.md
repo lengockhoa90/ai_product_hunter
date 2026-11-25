@@ -1,6 +1,6 @@
 # AI PRODUCT HUNTER — SYSTEM ARCHITECTURE
 
-> Phiên bản: 0.6 (0.4: Problem-based Discovery, Demand Analyst, Data Confidence, Profit Analyst, kết hợp nguồn; 0.5: Agent 07 chấm điểm v2 theo model, Risk Gates, `variant_link`; 0.6: hồ sơ model `variant_profile`, Nhu cầu tách Presence/Velocity, xu hướng gián tiếp, Gate Tài chính cần giá vốn đã xác minh, scoring v2.1) · Ngày: 2026-11-24
+> Phiên bản: 0.7 (0.7: Giai đoạn 5 — khóa tin đăng theo sàn + mã tin, `sku_scope` tách tin nhiều phân loại, nhãn bán exact/rounded, `remeasure-plan`, trạng thái dữ liệu đối thủ, chuỗi xu hướng nhiễu; 0.4: Problem-based Discovery, Demand Analyst, Data Confidence, Profit Analyst, kết hợp nguồn; 0.5: Agent 07 chấm điểm v2 theo model, Risk Gates, `variant_link`; 0.6: hồ sơ model `variant_profile`, Nhu cầu tách Presence/Velocity, xu hướng gián tiếp, Gate Tài chính cần giá vốn đã xác minh, scoring v2.1) · Ngày: 2026-11-24
 > Trạng thái từng thành phần: xem bảng trạng thái ở đầu `IMPLEMENTATION_ROADMAP.md`.
 > Thay đổi so với 0.1: gộp bản ghi theo run vào `records/` (0.2); mô hình vận hành bán tự động, bỏ dự phòng Cowork desktop, quy tắc một người ghi, phân tầng theo dõi, xử lý lỗi lịch, bắt buộc `evidence_excerpt`, tách việc Demand/Competitor (0.3); mục 3.6–3.8, 4.2, 4.4, 4.5 (0.4).
 > Phạm vi: kiến trúc tổng thể, phối hợp Agent, mô hình dữ liệu, lưu trữ, lập lịch, giới hạn kỹ thuật.
@@ -333,13 +333,27 @@ Lệnh `aph.py competitors` (config `config/competitor_analysis.json`), skill `d
 - Đầu ra theo model: Competitor Score, số đối thủ, danh sách shop (hãng/nhà phân phối hay shop thường), phân bố giá theo sàn (≥ 3 tin), mức tập trung (tỷ trọng shop đầu, HHI theo nhãn "đã bán" lũy kế), tính năng người mua khen, phàn nàn, lợi thế, khoảng trống (có cơ sở khi ≥ 3 lượt nhắc trên ≥ 2 tin), bằng chứng, độ tin cậy, dữ liệu thiếu, đề xuất.
 - Kind mới `competitor_analysis` (append-only, chạy lại không đổi → không ghi; nằm trong `SKIP_KINDS`).
 
-### 4.10 Tích hợp 7 Agent (0.6)
+### 4.10 Kết nối các Agent (0.6, cập nhật 0.7)
+
+> Trạng thái thật (2026-11-25): mới chạy trọn chuỗi 01 → 07 trên dữ liệu thật cho **một** model (Hunonic Datic 3 nút WiFi, run_20261125T052519_44f6). Chưa có model nào qua đủ Velocity, giá nhập đã xác minh và chi phí shop, nên chưa kiểm chứng được nhánh GO trên dữ liệu thật. Không coi đây là "tích hợp hoàn chỉnh 7 Agent".
+
 
 - Agent thu thập (01 Market, 02 Trend, 05 Supplier, 06 Profit, và phần thu thập của 03/04) chạy trong thread có PC, ghi bản ghi gốc.
 - Agent tổng hợp chỉ đọc kho, chạy bằng `aph.py pipeline`: readiness → 03 `demand_analysis` → 04 `competitor_analysis` → 07 `evaluation`. Cả ba dùng chung bộ lọc model của Agent 07 nên không mâu thuẫn; 03/04 không là đầu vào chấm điểm (07 đọc dữ liệu gốc).
 - Chống ghi trùng ở mọi bước; dữ liệu gốc mới → chỉ bước bị ảnh hưởng ghi bản mới.
 - Đánh giá NCC (`vendor_review`) gắn với pháp nhân: tin NCC dùng bản đánh giá mới nhất của NCC đó, kể cả khi bản mới gắn tin khác (sửa lỗi 0.6).
 - Báo cáo tổng hợp: bảng theo Opportunity Score + việc tiếp theo gom theo người/Agent phụ trách. Lịch cloud chỉ chạy được bước này.
+
+### 4.11 Toàn vẹn dữ liệu tin đăng (0.7)
+
+- **Một tin đăng = sàn + mã tin** (`listing_key`): Shopee `shopee:<shop>.<item>` (cả dạng `/product/<shop>/<item>` và `-i.<shop>.<item>`), Lazada `lazada:<itemId>`, Tiki `tiki:<id>`. Giá, cạnh tranh và Velocity lấy bản mới nhất mỗi tin; không bao giờ so nhãn bán của 2 tin khác nhau.
+- **Tin nhiều phân loại** (`sku_scope=multi_sku` trên listing hoặc `variant_link`, hoặc tiêu đề khớp `config/competitor_analysis.json` → `multi_sku_title_patterns`): vẫn là shop đối thủ, nhưng giá thẻ (phân loại rẻ nhất) và nhãn bán (gộp mọi phân loại) không dùng cho trung vị, Presence hay Velocity của biến thể. Áp dụng ở Agent 03, 04, 06 (`prices`, `max-cost`) và 07.
+- **Nhãn bán** (`sold_label_info`): `exact` (số đếm cụ thể) hoặc `rounded` ('2k+', '1,2k', '2.600+'). Velocity chỉ tính khi cả 2 lần đo là `exact`, cách ≥ 7 ngày, cùng tin.
+- **Đo lại** (`aph.py remeasure-plan`, `config/remeasure.json`): chỉ đọc; liệt kê từng tin đã lưu, các lần đo, hạn đo lại (không trước 01/12/2026, cách lần trước ≥ 7 ngày), cách truy cập, cảnh báo. Đo lại = ghi listing mới đúng URL cũ với `observed_at` ngày đo; chưa đến hạn thì không ghi gì.
+- **Trạng thái dữ liệu đối thủ** (Agent 04): `not_collected` (số shop = UNKNOWN), `searched_none_found` (cần observation `search_result_count`), `insufficient` (< 3 tin), `verified`. Lợi thế cạnh tranh chỉ nêu khi `verified`.
+- **Hàng thay thế khác hãng**: listing có `substitute_for=<variant>` và tin của model khác cùng giao thức; chỉ hiện khoảng giá thẻ và nhãn bán gốc, không gộp vào đối thủ cùng model.
+- **Chuỗi xu hướng nhiễu** (`config/noisy_series.json`): dữ liệu vẫn giữ, nhưng Agent 02 (`trend`) và Agent 03 (mùa vụ) bỏ qua. `trend --variant` chỉ dùng chuỗi gắn model; mặc định chỉ dùng chuỗi cấp sản phẩm.
+- **Đánh giá NCC theo pháp nhân**: bản ghi NCC mới chưa nằm trong `supplier_refs` được nhận theo tên miền (`vendor_key` / `vendor_domains`).
 
 ### 4.5 Lợi nhuận
 

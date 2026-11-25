@@ -1,0 +1,9 @@
+{
+  "version": "n1",
+  "_doc": "Chuỗi chỉ số tìm kiếm có thật nhưng từ khóa bị nhiễu (truy vấn không liên quan lẫn vào). Dữ liệu vẫn giữ trong kho (append-only); Agent 02 (trend) và Agent 03 (mùa vụ) bỏ qua các chuỗi này. Thêm mục mới kèm lý do và nguồn kiểm chứng.",
+  "excluded": {
+    "obs_2f0133f078cb": {"keyword": "công tắc thông minh", "reason": "Truy vấn liên quan và đột phá 09–11/2026 là câu hỏi thi công vụ ('nguyên tắc', 'quy tắc'); kiểm chứng 2026-11-25 bằng cụm liên quan Google Trends", "checked_in_run": "run_20261125T052519_44f6"},
+    "obs_22ba822d366e": {"keyword": "công tắc thông minh", "reason": "Như trên (cùng từ khóa, so sánh khác)", "checked_in_run": "run_20261125T052519_44f6"},
+    "obs_ad337e77343a": {"keyword": "cảm biến cửa", "reason": "Cụm liên quan hàng đầu là 'cửa tự động', 'cảm biến cửa cuốn': không phải cảm biến cửa nhà thông minh (Giai đoạn 2)", "checked_in_run": "run_20261124T152002_d077"}
+  }
+}

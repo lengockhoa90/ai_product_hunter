@@ -160,6 +160,11 @@
       "question",
       "price",
       "alternative"
+    ],
+    "sku_scope": [
+      "exact",
+      "multi_sku",
+      "unknown"
     ]
   },
   "kinds": {
@@ -217,10 +222,14 @@
         "weaknesses": "list",
         "note": "str",
         "variant_key": "str",
-        "observed_at": "str"
+        "observed_at": "str",
+        "sku_scope": "str",
+        "substitute_for": "str",
+        "brand": "str"
       },
       "enum_fields": {
-        "verification": "verification"
+        "verification": "verification",
+        "sku_scope": "sku_scope"
       }
     },
     "supplier": {
@@ -427,7 +436,11 @@
       },
       "optional": {
         "note": "str",
-        "by": "str"
+        "by": "str",
+        "sku_scope": "str"
+      },
+      "enum_fields": {
+        "sku_scope": "sku_scope"
       }
     },
     "evaluation": {
@@ -548,7 +561,9 @@
         "confidence": "any",
         "missing_data": "any",
         "recommendations": "any",
-        "input_snapshot": "any"
+        "input_snapshot": "any",
+        "competitor_state": "dict",
+        "substitutes": "dict"
       }
     }
   },

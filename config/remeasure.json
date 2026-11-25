@@ -1,0 +1,12 @@
+{
+  "version": "r1",
+  "_doc": "Đo lại nhãn 'đã bán' của CÙNG tin đăng (cùng sàn + cùng mã tin) để tính Demand Velocity. Không đo trước start_date, không tạo bản ghi khi chưa đến hạn, không so 2 tin khác nhau.",
+  "start_date": "2026-12-01",
+  "min_days": 7,
+  "_precision_doc": "exact = số đếm cụ thể ('552 sold', '16 Đã bán'). rounded = nhãn làm tròn/chặn dưới ('2k+', '1,2k', '2.600+', '10k+'): chỉ biết giá trị >= mốc, không dùng để tính tốc độ. Nếu 2 lần đo đều rounded và mốc tăng, chỉ ghi là 'tăng ít nhất qua mốc', không chấm điểm.",
+  "access": {
+    "shopee": "Chỉ đọc thẻ trang tìm kiếm (li.shopee-search-item-result__item), tìm lại đúng mã shop.item; KHÔNG gọi API Shopee, trang chi tiết sản phẩm không hiển thị nội dung khi mở tự động (2026-11-25).",
+    "lazada": "catalog/?ajax=true&q=<từ khóa> từ trình duyệt PC, tìm lại đúng pdp-i<mã>; anh Khoa giải CAPTCHA nếu hiện.",
+    "hunonic.com": "Trang sản phẩm công khai (nhãn 'Đã bán' do web hãng tự hiển thị)."
+  }
+}
