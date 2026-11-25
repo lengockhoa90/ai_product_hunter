@@ -659,6 +659,19 @@ class TestProfitAnalyst(Base):
                                               "price_tiers": [{"min_qty": 1, "price": 455000}], "evidence_excerpt": "Giá 455.000₫"})
         self.assertIn("unit_cost", aph.build_profit_inputs(self.st, pid, "shopee")["missing"])
 
+    def test_pct_of_price_costs_scale_with_sell_price(self):
+        # chi phí người dùng cho theo % giá bán: quy ra VND/sp theo giá từng kịch bản; trường không hỗ trợ % thì vẫn thiếu
+        pid = self.product()["product_id"]
+        for p in (200000, 300000, 400000):
+            self.listing(pid, p)
+        pct = lambda f, val: {"id": f"cost_{f}", "value": val, "value_basis": "pct_of_price", "verification": "user_input",
+                              "source_url": "user:test", "source_date": "2026-11-25"}
+        self.set_assumptions([pct("packaging", 1), pct("ops_per_unit", 4), pct("inbound_shipping", 2)])
+        b = aph.build_profit_inputs(self.st, pid, "shopee")
+        self.assertEqual(b["inputs"]["packaging"]["base"], 3000)
+        self.assertEqual(b["inputs"]["ops_per_unit"]["conservative"], 10000)
+        self.assertIn("inbound_shipping", b["missing"]); self.assertNotIn("inbound_shipping", b["inputs"])
+
     def test_full_chain_and_max_cost_round_trip(self):
         pid = self.product()["product_id"]
         for p in (250000, 290000, 320000):

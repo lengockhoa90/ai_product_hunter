@@ -789,6 +789,10 @@ def price_stats(store, pid, platform=None, variant=None):
 COST_PROFILE_FIELDS = ["inbound_shipping", "ads_pct", "seller_shipping", "packaging", "ops_per_unit",
                        "return_rate_pct", "return_loss_pct", "other_per_unit", "fixed_test_cost"]
 COST_BASES = ("dealer_quote", "wholesale_listed")
+COST_LABEL = {"inbound_shipping": "vận chuyển hàng về kho", "ads_pct": "quảng cáo %", "seller_shipping": "ship shop chịu", "packaging": "đóng gói",
+              "ops_per_unit": "vận hành", "return_rate_pct": "tỷ lệ hoàn", "return_loss_pct": "tổn thất mỗi đơn hoàn", "other_per_unit": "chi phí khác",
+              "fixed_test_cost": "chi phí cố định khi test"}
+PCT_OF_PRICE_FIELDS = ("packaging", "ops_per_unit", "other_per_unit", "seller_shipping")
 
 
 def _spec_from(value, ref):
@@ -822,7 +826,14 @@ def build_profit_inputs(store, pid, platform, variant=None):
         missing += ["platform_fee_pct", "payment_fee_pct"]
     for f in COST_PROFILE_FIELDS:
         a = amap.get(f"cost_{f}_{platform}") or amap.get(f"cost_{f}")
-        if usable(a):
+        if usable(a) and a.get("value_basis") == "pct_of_price":
+            # chi phí người dùng cho theo % giá bán (đóng gói, vận hành…): quy ra VND/sp theo giá bán của từng kịch bản
+            if f in PCT_OF_PRICE_FIELDS and "sell_price" in inputs:
+                inputs[f] = {sc: round(inputs["sell_price"][sc] * a["value"] / 100) for sc in SCENARIOS} | {"ref": f"assumption:{a['id']}"}
+                sources[f] = f"assumption:{a['id']} ({a['value']}% giá bán)"
+            else:
+                missing.append(f)
+        elif usable(a):
             inputs[f] = _spec_from(a["value"], f"assumption:{a['id']}")
             sources[f] = f"assumption:{a['id']}"
         else:
@@ -1678,7 +1689,7 @@ def evaluate(store: Store, pid, variant, judgments=None, now=None):
                         "owner": "Anh Khoa"})
     if excl:
         risks.append("Trần giá nhập chưa trừ: " + ", ".join(excl))
-        actions.append({"issue": "Thiếu chi phí thực tế", "action": "Cung cấp chi phí shop (quảng cáo %, đóng gói, ship shop chịu, tỷ lệ hoàn, vận hành) để Agent 06 trừ tiếp",
+        actions.append({"issue": "Thiếu chi phí thực tế", "action": "Cung cấp chi phí shop còn thiếu (" + ", ".join(COST_LABEL.get(x, x) for x in excl) + ") để Agent 06 trừ tiếp",
                         "owner": "Anh Khoa → Agent 06"})
 
     # ---- Product Identity: hồ sơ model (thương hiệu, model, giao thức) + kiểm tra tin đăng không lệch giao thức
