@@ -66,6 +66,7 @@ Một người ghi: nếu `runs/` có run khác chưa kết thúc (dưới 2 gi�
   9. `aph.py eval-report --out … --run <run>`, viết phần đầu báo cáo.
   10. `finish-run`, `reindex`, báo cho người dùng việc cần họ cung cấp.
   Lệnh cũ `aph.py score` (v1, 7 tiêu chí) chỉ giữ để đọc lịch sử.
+- Tích hợp: sau khi thu thập xong (Agent 01/02/05/06 và phần thu thập của 03/04), chạy `aph.py pipeline --run <run> --all|--product <id> [--variant <v>] --out /mnt/project-files/ai-product-hunter/reports/daily/<ngày>_tong-hop.md`: readiness → Agent 03 `demand` → Agent 04 `competitors` → Agent 07 `evaluate` cho từng model, chống ghi trùng, báo cáo tổng hợp gồm bảng theo điểm và việc tiếp theo gom theo người/Agent phụ trách. Lịch cloud (không có trình duyệt) chỉ chạy lệnh này.
 - Sau đánh giá: chỉ chạy Agent mà `next_actions` cần, không chạy lại toàn bộ. Việc có owner "Anh Khoa" → liệt kê cho người dùng.
 - Trạng thái nghiên cứu: `suggested_research_status` chỉ là đề xuất; ghi `aph.py set-status --run --product --research <status> --reason "<lý do>" --by orchestrator` khi người dùng đồng ý.
 

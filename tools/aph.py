@@ -1452,13 +1452,15 @@ def evaluate(store: Store, pid, variant, judgments=None, now=None):
     is_vn_sup = lambda r: r["kind"] == "supplier" and r.get("market", "VN") == "VN" and r.get("price_basis") != "source_reference"
     sups = [r for r in used if is_vn_sup(r)]
     unassigned_sup = [i for i in ident["unassigned"] if i in by_id and is_vn_sup(by_id[i])]
-    latest_rv = {}
+    latest_rv, vendor_of = {}, {}
     for r in allrecs:
         if r["kind"] == "vendor_review":
             latest_rv[r["vendor_key"]] = r
+            for sid in r.get("supplier_refs") or []:
+                vendor_of[sid] = r["vendor_key"]  # đánh giá NCC là đánh giá pháp nhân: dùng bản mới nhất của NCC đó, kể cả khi bản mới gắn tin khác
     rows = []
     for s in sups:
-        rv = next((r for r in latest_rv.values() if s["id"] in (r.get("supplier_refs") or [])), None)
+        rv = latest_rv.get(vendor_of.get(s["id"]))
         rows.append((s, rv, vendor_assessment(rv) if rv else None))
     assessed = [x for x in rows if x[2]]
     cost_sups = [s for s in sups if s.get("price_basis") in COST_BASES and s.get("price_tiers")]
@@ -2011,7 +2013,8 @@ def competitor_analysis(store: Store, pid, variant, now=None):
     conc["incumbent_shops"] = [c["shop"] for c in inc]
     # Tính năng / phàn nàn / lợi thế (từ tin đăng và đánh giá người mua do Agent 03 ghi)
     dcfg = cfg("demand_analysis")
-    dem = [r for r in used if r["kind"] == "demand"]
+    # Chỉ phản hồi về sản phẩm cụ thể (có variant_key) mới là phàn nàn/khen về hàng đối thủ; vấn đề chung của người mua thuộc Agent 03
+    dem = [r for r in used if r["kind"] == "demand" and r.get("variant_key")]
     def asp(r):
         return r.get("aspect") or dcfg["aspect_from_type"].get(r["type"], "pain_point")
     def themes(aspects):
@@ -2109,6 +2112,62 @@ def render_competitor_report(store: Store, items, run=None):
         L.append("- **Khoảng trống thị trường:** " + ("; ".join(f"{g['gap']} ({g['strength']})" for g in d["market_gaps"]) or "chưa có bằng chứng"))
         L.append(f"- **Độ tin cậy:** {d['confidence']} · **Dữ liệu còn thiếu:** " + ("; ".join(d["missing_data"]) or "không"))
         L.append("- **Đề xuất:** " + ("; ".join(d["recommendations"]) or "không"))
+    return "\n".join(L) + "\n"
+
+
+PIPELINE_STEPS = ("readiness", "demand", "competitors", "evaluate")
+
+
+def _write_dedup(store, run, kind, rec, prev, same):
+    if prev and same(prev, rec):
+        return prev, "unchanged"
+    return store.append(run, kind, rec), "new"
+
+
+def run_pipeline(store: Store, run, targets):
+    """Phase 4: chạy các Agent chỉ đọc kho (03 Demand, 04 Competitor, 07 Evaluator) theo đúng thứ tự cho từng model, chống ghi trùng.
+    Agent 01/02/05/06 cần thu thập (trình duyệt/người dùng) nên không chạy ở đây; việc của chúng xuất hiện trong next_actions."""
+    pd, pc, pe = latest_demand_analyses(store), latest_competitor_analyses(store), latest_evaluations(store)
+    rows = []
+    for pid, v in targets:
+        rd = readiness(store, pid, v)
+        d, wd = _write_dedup(store, run, "demand_analysis", demand_analysis(store, pid, v), pd.get((pid, v)), same_demand_analysis)
+        c, wc = _write_dedup(store, run, "competitor_analysis", competitor_analysis(store, pid, v), pc.get((pid, v)), same_demand_analysis)
+        e, we = _write_dedup(store, run, "evaluation", evaluate(store, pid, v), pe.get((pid, v)), same_evaluation)
+        rows.append({"product_id": pid, "variant_key": v, "readiness": rd, "demand": d, "competitors": c, "evaluation": e,
+                     "writes": {"demand_analysis": wd, "competitor_analysis": wc, "evaluation": we}})
+    return rows
+
+
+def render_pipeline_report(rows, run=None):
+    def name(e):
+        return (e.get("model") or {}).get("display") if e.get("variant_key") else f"{e.get('product_name')} (chưa xác định model)"
+    L = ["# AI Product Hunter: báo cáo tổng hợp theo model", "",
+         f"Ngày {dt.date.today().strftime('%d/%m/%Y')}" + (f" · run `{run}`" if run else "") + " · Agent 03 → 04 → 07 trên dữ liệu đã có trong kho", "",
+         "Thứ tự: Demand Analyst (03) và Competitor Analyst (04) tóm tắt dữ liệu; Opportunity Evaluator (07) chấm điểm và kết luận từ dữ liệu gốc. "
+         "Bảng xếp theo Opportunity Score giảm dần.", "",
+         "| Model | Trạng thái | Điểm | Phủ | Nhu cầu | Velocity sp/30 ngày | Đối thủ (shop) | Phàn nàn chính | Câu hỏi nhu cầu đã trả lời |",
+         "|---|---|---|---|---|---|---|---|---|"]
+    rows = sorted(rows, key=lambda r: (r["evaluation"]["total"] is None, -(r["evaluation"]["total"] or 0)))
+    for r in rows:
+        e, d, c = r["evaluation"], r["demand"], r["competitors"]
+        ans = sum(1 for q in d["questions"] if not str(q["answer"]).startswith("UNKNOWN"))
+        comp = c["complaints"][0] if c["complaints"] else None
+        L.append(f"| {name(e)} | {e['status'].replace('_', ' ')} | {e['total'] if e['total'] is not None else 'chưa có'} | {e['weight_coverage']}% | "
+                 f"{d['demand_score']['level']} | {(d['velocity'] or {}).get('units_per_30d', 'chưa đo')} | {c['competitor_count']['shops']} | "
+                 f"{(comp['theme'] + ' (' + str(comp['mentions']) + '/' + str(comp['sample_size'] or '?') + ')') if comp else '-'} | {ans}/9 |")
+    owners = {}
+    for r in rows:
+        for a in r["evaluation"]["next_actions"]:
+            owners.setdefault(a.get("owner") or "?", {}).setdefault(a["action"], []).append(name(r["evaluation"]))
+    L += ["", "## Việc tiếp theo theo người/Agent phụ trách", ""]
+    for o in sorted(owners):
+        L.append(f"### {o}")
+        for act, models in sorted(owners[o].items(), key=lambda x: -len(x[1])):
+            L.append(f"- {act} — {len(models)} model" + (f": {', '.join(models[:4])}{' …' if len(models) > 4 else ''}" if len(models) <= 6 else ""))
+        L.append("")
+    L += ["## Ghi chú", "- GO cần mọi Gate đạt, điểm ≥ 75 và phủ trọng số ≥ 80%. Thiếu dữ liệu cho ra NEED MORE DATA, không phải kết luận xấu.",
+          "- Chi tiết từng Agent: chạy `aph.py demand|competitors|eval-report --out …` cho báo cáo riêng."]
     return "\n".join(L) + "\n"
 
 
@@ -2365,6 +2424,9 @@ def main(argv=None):
     s = sub.add_parser("trend", help="Phân loại giai đoạn xu hướng từ chuỗi theo tuần; ghi bản ghi trend trừ khi --dry")
     s.add_argument("--run"); s.add_argument("--product", required=True); s.add_argument("--dry", action="store_true")
     s = sub.add_parser("coverage", help="Độ phủ nguồn theo nhu cầu dữ liệu (config/source_fallbacks.json)"); s.add_argument("--product", required=True)
+    s = sub.add_parser("pipeline", help="Phase 4: chạy readiness → Agent 03 demand → Agent 04 competitors → Agent 07 evaluate cho từng model, chống ghi trùng, báo cáo tổng hợp")
+    s.add_argument("--run", required=True); s.add_argument("--product"); s.add_argument("--variant"); s.add_argument("--all", action="store_true")
+    s.add_argument("--out", help="ghi báo cáo tổng hợp Markdown")
     s = sub.add_parser("competitors", help="Agent 04: phân tích đối thủ theo model từ kho (giá theo sàn, tập trung, phàn nàn, khoảng trống); ghi competitor_analysis trừ khi --dry")
     s.add_argument("--run"); s.add_argument("--product"); s.add_argument("--variant"); s.add_argument("--all", action="store_true")
     s.add_argument("--dry", action="store_true"); s.add_argument("--out", help="ghi báo cáo Markdown")
@@ -2519,6 +2581,19 @@ def main(argv=None):
                 else:
                     out.append(ev if a.dry else {**st.append(a.run, "evaluation", ev), "write": "new"})
             res = out[0] if len(out) == 1 else [{k: e.get(k) for k in ("id", "product_id", "variant_key", "status", "total", "weight_coverage", "data_confidence", "write")} for e in out]
+        elif a.cmd == "pipeline":
+            if a.all:
+                targets = [(p["product_id"], v) for p in st.products() for v in product_variants(st, p["product_id"])]
+            elif a.product:
+                targets = [(a.product, a.variant)] if a.variant else [(a.product, v) for v in product_variants(st, a.product)]
+            else:
+                raise APHError("Cần --product hoặc --all")
+            rows = run_pipeline(st, a.run, targets)
+            if a.out:
+                Path(a.out).parent.mkdir(parents=True, exist_ok=True)
+                Path(a.out).write_text(render_pipeline_report(rows, a.run), encoding="utf-8")
+            res = [{"product_id": r["product_id"], "variant_key": r["variant_key"], "status": r["evaluation"]["status"], "total": r["evaluation"]["total"],
+                    "ready_for_go": r["readiness"]["ready_for_go"], "writes": r["writes"]} for r in rows]
         elif a.cmd == "competitors":
             if a.all:
                 targets = [(p["product_id"], v) for p in st.products() for v in product_variants(st, p["product_id"])]

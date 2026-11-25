@@ -1284,3 +1284,38 @@ class TestCompetitorAnalyst(DemandBase):
         self.assertIn("Phân bố giá", out.read_text(encoding="utf-8"))
         self.assertNotIn("competitor_analysis", {x["kind"] for x in aph.evaluate(self.st, pid, self.V)["input_snapshot"]})
 
+
+
+class TestPipelineIntegration(DemandBase):
+    """Phase 4: Agent 03 → 04 → 07 chạy nối tiếp trên cùng dữ liệu, chống ghi trùng."""
+
+    def cli(self, *args):
+        import contextlib, io
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = aph.main(["--data", self.tmp.name, *args])
+        self.assertEqual(rc, 0, buf.getvalue())
+        return json.loads(buf.getvalue())
+
+    def test_pipeline_end_to_end(self):
+        go = self.strong(real_cost=True, tag="go")
+        weak = self.strong(real_cost=False, demand="weak", tag="weak")
+        out = pathlib.Path(self.tmp.name) / "tong-hop.md"
+        first = self.cli("pipeline", "--run", self.run, "--all", "--out", str(out))
+        by = {r["product_id"]: r for r in first}
+        self.assertEqual(by[go]["status"], "GO")
+        self.assertTrue(by[go]["ready_for_go"])
+        self.assertNotEqual(by[weak]["status"], "GO")
+        self.assertTrue(all(set(r["writes"].values()) == {"new"} for r in first))
+        again = self.cli("pipeline", "--run", self.run, "--all")
+        self.assertTrue(all(set(r["writes"].values()) == {"unchanged"} for r in again))
+        txt = out.read_text(encoding="utf-8")
+        self.assertIn("Việc tiếp theo theo người/Agent phụ trách", txt)
+        self.assertLess(txt.index("| GO |"), txt.index("NEED MORE DATA") if "NEED MORE DATA" in txt else len(txt))
+        # Dữ liệu mới của Agent 03 làm thay đổi phân tích nhu cầu và đánh giá, không chạm bản cũ
+        self.dem(go, "Pin nhanh hết", "pain_point", 4, 40)
+        third = {r["product_id"]: r for r in self.cli("pipeline", "--run", self.run, "--product", go, "--variant", self.V)}
+        self.assertEqual(third[go]["writes"]["demand_analysis"], "new")
+        self.assertEqual(third[go]["writes"]["evaluation"], "new")
+        self.assertEqual(len(self.st.records(go, "demand_analysis")), 2)
+        self.assertEqual(len(self.st.records(go, "evaluation")), 2)
