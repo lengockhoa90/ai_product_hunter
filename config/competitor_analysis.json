@@ -1,9 +1,13 @@
 {
-  "version": "c1",
-  "_doc": "Agent 04 Competitor Analyst. Chỉ đọc kho; điểm cạnh tranh lấy từ Agent 07 (cùng quy tắc). Không khái quát từ mẫu nhỏ.",
+  "version": "c2",
+  "_doc": "Agent 04 Competitor Analyst. Chỉ đọc kho; điểm cạnh tranh lấy từ Agent 07 (cùng quy tắc). Không khái quát từ mẫu nhỏ. c2: tách trạng thái đối thủ (chưa thu thập / đã tìm không thấy / chưa đủ dữ liệu / đã xác minh), trung vị giá chỉ từ tin đúng biến thể (sku_scope exact), thêm mục sản phẩm thay thế khác hãng.",
   "min_listings_for_distribution": 3,
+  "min_listings_verified": 3,
   "gap_min_mentions": 3,
   "gap_min_listings": 2,
   "small_sample_reviews": 30,
-  "required_platforms": ["lazada", "shopee", "tiktok_shop"]
+  "required_platforms": ["lazada", "shopee", "tiktok_shop"],
+  "search_metrics": ["search_result_count"],
+  "_multi_sku_doc": "Tiêu đề (đã bỏ dấu, chữ thường, ký tự đặc biệt thành khoảng trắng) khớp một mẫu dưới đây = tin nhiều phân loại: giá thẻ là giá phân loại rẻ nhất, nhãn 'đã bán' gộp mọi phân loại. Ghi rõ sku_scope trên listing hoặc variant_link sẽ thắng heuristic này.",
+  "multi_sku_title_patterns": ["\\b1 2 3\\b", "\\b\\d nut \\d nut\\b", "\\b0?1t? 0?2t? 0?3t?\\b"]
 }

@@ -33,3 +33,10 @@ Repo `lengockhoa90/ai_product_hunter`, kho `/mnt/project-files/ai-product-hunter
 
 ## Không được
 Bịa đối thủ, giá, nhãn bán · gộp sản phẩm khác mã model · khái quát phàn nàn từ mẫu nhỏ · coi nhãn lũy kế là thị phần · vượt CAPTCHA · nhắn tin cho shop đối thủ.
+
+## Giai đoạn 5 (25/11/2026): quy tắc bổ sung
+- Đọc `competitor_state` trước khi kết luận: `not_collected` (số shop UNKNOWN, không phải 0), `searched_none_found` (đã ghi observation `search_result_count` = 0), `insufficient` (< 3 tin), `verified`. Không nêu lợi thế cạnh tranh khi chưa `verified`.
+- Khi đã tìm mà không thấy tin nào của model, ghi `observation` metric `search_result_count`, value 0, `variant_key`, `source_url` trang tìm kiếm.
+- Tin bán nhiều phân loại (1–4 nút…): ghi `sku_scope: "multi_sku"` trên listing (hoặc `variant_link` có `sku_scope` cho tin cũ). Tin này tính là shop đối thủ nhưng không vào trung vị giá hay nhãn bán của biến thể.
+- Hàng thay thế khác hãng cùng chức năng: ghi listing cấp sản phẩm (không `variant_key`) với `substitute_for: <variant_key>`, `brand`. Chỉ để thấy mặt bằng giá, không gộp vào đối thủ cùng model.
+- Shopee: chỉ đọc thẻ trang tìm kiếm; trang chi tiết sản phẩm không hiển thị khi mở tự động, không gọi API.

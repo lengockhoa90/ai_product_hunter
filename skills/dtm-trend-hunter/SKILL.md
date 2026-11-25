@@ -56,3 +56,8 @@ Trình duyệt từ chối mở tiktok.com → `log-access --status error`, khô
 
 ## Không được
 Kết luận xu hướng từ một nguồn hay một mốc · dùng lượt xem/tìm kiếm làm bằng chứng nhu cầu · đọc số từ hình biểu đồ thay vì bảng · dùng tổng quan AI của Google · vượt CAPTCHA hay đăng nhập thay người dùng.
+
+## Giai đoạn 5 (25/11/2026): từ khóa và phạm vi
+- Chuỗi cấp thương hiệu/danh mục ghi ở cấp sản phẩm (không `variant_key`), ghi rõ phạm vi trong `note`. Chỉ gắn `variant_key` khi từ khóa là tên riêng của model.
+- `aph.py trend --product <id> --variant <key>` chỉ dùng chuỗi gắn model; mặc định chỉ dùng chuỗi cấp sản phẩm (không trộn).
+- Luôn xem cụm truy vấn liên quan trước khi dùng một từ khóa. Từ khóa nhiễu đã kiểm chứng ghi vào `config/noisy_series.json` (ví dụ 'công tắc thông minh' lẫn câu hỏi thi công vụ, 'cảm biến cửa' lẫn cửa tự động).
