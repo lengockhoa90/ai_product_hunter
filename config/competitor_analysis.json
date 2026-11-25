@@ -1,0 +1,9 @@
+{
+  "version": "c1",
+  "_doc": "Agent 04 Competitor Analyst. Chỉ đọc kho; điểm cạnh tranh lấy từ Agent 07 (cùng quy tắc). Không khái quát từ mẫu nhỏ.",
+  "min_listings_for_distribution": 3,
+  "gap_min_mentions": 3,
+  "gap_min_listings": 2,
+  "small_sample_reviews": 30,
+  "required_platforms": ["lazada", "shopee", "tiktok_shop"]
+}

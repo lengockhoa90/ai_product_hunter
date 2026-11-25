@@ -327,6 +327,12 @@ Lệnh `aph.py demand` (config `config/demand_analysis.json`), skill `dtm-demand
 - Kind mới `demand_analysis`: kết quả 9 câu hỏi + `input_snapshot`, append-only, chạy lại không đổi → không ghi. Không là đầu vào chấm điểm (nằm trong `SKIP_KINDS`).
 - Quy tắc: mẫu nhỏ được gắn nhãn; mùa vụ cần ≥ 350 ngày dữ liệu, 1 năm chỉ là chỉ báo.
 
+### 4.9 Agent 04 Competitor Analyst (0.6)
+
+Lệnh `aph.py competitors` (config `config/competitor_analysis.json`), skill `dtm-competitor-analyst`. Chỉ đọc kho; dùng bộ lọc model và nhóm Cạnh tranh của Agent 07.
+- Đầu ra theo model: Competitor Score, số đối thủ, danh sách shop (hãng/nhà phân phối hay shop thường), phân bố giá theo sàn (≥ 3 tin), mức tập trung (tỷ trọng shop đầu, HHI theo nhãn "đã bán" lũy kế), tính năng người mua khen, phàn nàn, lợi thế, khoảng trống (có cơ sở khi ≥ 3 lượt nhắc trên ≥ 2 tin), bằng chứng, độ tin cậy, dữ liệu thiếu, đề xuất.
+- Kind mới `competitor_analysis` (append-only, chạy lại không đổi → không ghi; nằm trong `SKIP_KINDS`).
+
 ### 4.5 Lợi nhuận
 
 `Lợi nhuận = Doanh thu − Giá vốn (giá nhập + vận chuyển quốc tế + thuế/phí nhập) − Phí nền tảng − Quảng cáo − Vận chuyển người bán chịu − Đóng gói − Vận hành − Bảo hành/hoàn hàng dự kiến − Khác`.

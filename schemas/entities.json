@@ -523,6 +523,33 @@
         "questions": "any",
         "input_snapshot": "any"
       }
+    },
+    "competitor_analysis": {
+      "required": {
+        "product_id": "str",
+        "config_version": "str"
+      },
+      "optional": {
+        "variant_key": "any",
+        "model": "any",
+        "product_name": "any",
+        "agent": "any",
+        "competitor_score": "any",
+        "competitor_count": "any",
+        "competitors": "any",
+        "price_distribution": "any",
+        "brand_concentration": "any",
+        "feature_comparison": "any",
+        "complaints": "any",
+        "listing_weaknesses": "any",
+        "advantages": "any",
+        "market_gaps": "any",
+        "evidence": "any",
+        "confidence": "any",
+        "missing_data": "any",
+        "recommendations": "any",
+        "input_snapshot": "any"
+      }
     }
   },
   "product": {
