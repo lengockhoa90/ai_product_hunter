@@ -1148,7 +1148,7 @@ LINKABLE_KINDS = ("listing", "supplier", "observation", "demand", "max_cost", "p
 GROUPS = ("demand", "trend", "competition", "supplier", "financial")
 JUDGEABLE = ("demand", "competition")
 STATUS_LABEL = {"GO": "GO", "CONDITIONAL_GO": "CONDITIONAL GO", "NEED_MORE_DATA": "NEED MORE DATA", "NO_GO": "NO GO"}
-SKIP_KINDS = ("variant_link", "evaluation", "demand_analysis", "retraction", "note", "decision", "access", "watch", "outcome")
+SKIP_KINDS = ("variant_link", "evaluation", "demand_analysis", "competitor_analysis", "retraction", "note", "decision", "access", "watch", "outcome")
 
 
 def rec_text(r):
@@ -1436,13 +1436,14 @@ def evaluate(store: Store, pid, variant, judgments=None, now=None):
             notes.append("chưa có bằng chứng khả năng khác biệt (cần Agent 04)")
         plats_c = {platform_of(r) for r in L}
         band = next(lbl for th, lbl in cc["bands"] if s >= th)
-        groups["competition"] = _group(s, f"{band}: " + "; ".join(notes) + f". Mẫu từ trang tìm kiếm {', '.join(sorted(plats_c))}, chưa có Shopee.",
+        groups["competition"] = _group(s, f"{band}: " + "; ".join(notes) + f". Mẫu từ trang tìm kiếm {', '.join(sorted(plats_c))}"
+                                       + (", chưa có Shopee." if "shopee" not in plats_c else "."),
                                        [r["id"] for r in L + diff_ev], _quality(L, cfgc, now) * min(1, len(plats_c) / 2), "observed",
                                        sources=plats_c, band=band, components=comp, cap=capped,
                                        price={"min": round(mn), "p25": round(p25), "median": round(med), "p75": round(p75), "max": round(prices[-1])})
         if not diff_ev:
             actions.append({"issue": "Chưa có bằng chứng khác biệt", "action": "Phân tích điểm yếu đối thủ, đánh giá khách chê gì ở model này",
-                            "owner": "Agent 04 (chưa có skill)"})
+                            "owner": "Agent 04"})
     if groups["competition"]["score"] is None:
         actions.append({"issue": "Thiếu dữ liệu cạnh tranh", "action": "Thu thêm tin đăng có giá của đúng model (≥ 3), ưu tiên Shopee", "owner": "Agent 06"})
 
@@ -1451,13 +1452,15 @@ def evaluate(store: Store, pid, variant, judgments=None, now=None):
     is_vn_sup = lambda r: r["kind"] == "supplier" and r.get("market", "VN") == "VN" and r.get("price_basis") != "source_reference"
     sups = [r for r in used if is_vn_sup(r)]
     unassigned_sup = [i for i in ident["unassigned"] if i in by_id and is_vn_sup(by_id[i])]
-    latest_rv = {}
+    latest_rv, vendor_of = {}, {}
     for r in allrecs:
         if r["kind"] == "vendor_review":
             latest_rv[r["vendor_key"]] = r
+            for sid in r.get("supplier_refs") or []:
+                vendor_of[sid] = r["vendor_key"]  # đánh giá NCC là đánh giá pháp nhân: dùng bản mới nhất của NCC đó, kể cả khi bản mới gắn tin khác
     rows = []
     for s in sups:
-        rv = next((r for r in latest_rv.values() if s["id"] in (r.get("supplier_refs") or [])), None)
+        rv = latest_rv.get(vendor_of.get(s["id"]))
         rows.append((s, rv, vendor_assessment(rv) if rv else None))
     assessed = [x for x in rows if x[2]]
     cost_sups = [s for s in sups if s.get("price_basis") in COST_BASES and s.get("price_tiers")]
@@ -1951,6 +1954,223 @@ def render_demand_report(store: Store, items, run=None):
     return "\n".join(L) + "\n"
 
 
+def competitor_analysis(store: Store, pid, variant, now=None):
+    """Agent 04 Competitor Analyst: đối thủ của một model từ dữ liệu đã có. Chỉ đọc kho, không thu thập, không suy diễn số liệu.
+    Điểm cạnh tranh lấy từ Agent 07 (cùng quy tắc); phân bố giá theo sàn, mức tập trung, tính năng, phàn nàn, lợi thế, khoảng trống."""
+    ccfg, w = cfg("competitor_analysis"), cfg("scoring_weights_v2")
+    e = evaluate(store, pid, variant, now=now)
+    by_id = {r["id"]: r for r in store.records()}
+    used = [by_id[x["id"]] for x in e["input_snapshot"] if x["id"] in by_id]
+    latest = {}
+    for r in used:
+        if r["kind"] == "listing":
+            latest[r["url"]] = r
+    L = list(latest.values())
+    cg = e["groups"]["competition"]
+    missing = []
+    shops = {}
+    for r in L:
+        k = norm_text(r.get("shop_name") or "") or r["url"]
+        d = shops.setdefault(k, {"shop": r.get("shop_name"), "listings": 0, "platforms": set(), "sold_label_total": 0, "prices": [], "ids": []})
+        d["listings"] += 1; d["platforms"].add(platform_of(r)); d["ids"].append(r["id"])
+        d["sold_label_total"] += parse_sold(r.get("sold_label")) or 0
+        if isinstance(r.get("price_vnd"), (int, float)) and r["price_vnd"] > 0:
+            d["prices"].append(r["price_vnd"])
+    cc = w["competition"]
+    brand = variant.split("-")[0] if variant else ""
+    pats = [norm_text(x) for x in cc["incumbent_patterns"] + cc["brand_aliases"].get(brand, [])]
+    comp_list = []
+    for d in sorted(shops.values(), key=lambda d: (-d["sold_label_total"], d["shop"] or "")):
+        comp_list.append({"shop": d["shop"], "listings": d["listings"], "platforms": sorted(d["platforms"]), "sold_label_total": d["sold_label_total"],
+                          "min_price": min(d["prices"]) if d["prices"] else None,
+                          "type": "hãng / nhà phân phối / official" if any(x and x in norm_text(d["shop"] or "") for x in pats) else "shop thường",
+                          "evidence": d["ids"]})
+    # Phân bố giá theo sàn
+    dist = {}
+    for plat in sorted({platform_of(r) for r in L}):
+        ps = sorted(float(r["price_vnd"]) for r in L if platform_of(r) == plat and isinstance(r.get("price_vnd"), (int, float)) and r["price_vnd"] > 0)
+        if len(ps) >= ccfg["min_listings_for_distribution"]:
+            dist[plat] = {"n": len(ps), "min": round(ps[0]), "p25": round(_quantile(ps, .25)), "median": round(_quantile(ps, .5)),
+                          "p75": round(_quantile(ps, .75)), "max": round(ps[-1])}
+        else:
+            dist[plat] = {"n": len(ps), "note": f"dưới {ccfg['min_listings_for_distribution']} tin: không tính phân bố", "prices": [round(x) for x in ps]}
+    for plat in ccfg["required_platforms"]:
+        if plat not in dist:
+            missing.append(f"Tin đăng đúng model trên {plat}")
+    # Mức tập trung
+    sold_total = sum(c["sold_label_total"] for c in comp_list)
+    with_sold = [c for c in comp_list if c["sold_label_total"] > 0]
+    if len(with_sold) >= 2:
+        shares = [c["sold_label_total"] / sold_total for c in with_sold]
+        conc = {"basis": "nhãn 'đã bán' lũy kế", "top_shop": with_sold[0]["shop"], "top_share": round(shares[0], 2),
+                "hhi": round(sum(x * x for x in shares), 3), "shops_with_sales": len(with_sold),
+                "note": "Nhãn lũy kế gồm cả doanh số cũ; chỉ cho biết ai từng bán nhiều, không phải thị phần hiện tại."}
+    else:
+        conc = {"basis": None, "note": "Dưới 2 shop có nhãn 'đã bán': chưa nói được mức tập trung."}
+        missing.append("≥ 2 shop có nhãn 'đã bán' để đo mức tập trung")
+    inc = [c for c in comp_list if c["type"] != "shop thường"]
+    conc["incumbent_listings"] = sum(c["listings"] for c in inc)
+    conc["incumbent_shops"] = [c["shop"] for c in inc]
+    # Tính năng / phàn nàn / lợi thế (từ tin đăng và đánh giá người mua do Agent 03 ghi)
+    dcfg = cfg("demand_analysis")
+    # Chỉ phản hồi về sản phẩm cụ thể (có variant_key) mới là phàn nàn/khen về hàng đối thủ; vấn đề chung của người mua thuộc Agent 03
+    dem = [r for r in used if r["kind"] == "demand" and r.get("variant_key")]
+    def asp(r):
+        return r.get("aspect") or dcfg["aspect_from_type"].get(r["type"], "pain_point")
+    def themes(aspects):
+        out = {}
+        for r in dem:
+            if asp(r) not in aspects:
+                continue
+            t = out.setdefault(norm_text(r["theme"]), {"theme": r["theme"], "mentions": 0, "sample_size": 0, "listings": set(), "evidence": []})
+            t["mentions"] += r.get("mentions") or 1; t["sample_size"] += r.get("sample_size") or 0
+            t["listings"].add(r.get("source_url") or r["id"]); t["evidence"].append(r["id"])
+        res = []
+        for t in out.values():
+            small = (t["sample_size"] and t["sample_size"] < ccfg["small_sample_reviews"]) or t["mentions"] < ccfg["gap_min_mentions"]
+            res.append({"theme": t["theme"], "mentions": t["mentions"], "sample_size": t["sample_size"] or None, "listings": len(t["listings"]),
+                        "evidence": t["evidence"], "reliability": "mẫu nhỏ, chỉ là tín hiệu" if small else "lặp lại trong mẫu đủ lớn",
+                        "_strong": t["mentions"] >= ccfg["gap_min_mentions"] and len(t["listings"]) >= ccfg["gap_min_listings"]})
+        return sorted(res, key=lambda x: -x["mentions"])
+    complaints = themes({"pain_point", "return_reason", "non_buy_reason"})
+    praised = themes({"feature", "buying_reason", "use_case"})
+    lw = [{"listing": r["id"], "shop": r.get("shop_name"), "weaknesses": r.get("weaknesses")} for r in L if r.get("weaknesses")]
+    ls = [{"listing": r["id"], "shop": r.get("shop_name"), "strengths": r.get("strengths")} for r in L if r.get("strengths")]
+    features = {"buyer_valued": [{k: v for k, v in t.items() if k != "_strong"} for t in praised], "listing_strengths": ls,
+                "note": "Tính năng người mua nhắc tới trong đánh giá; chưa có bảng so sánh thông số giữa các model."}
+    if not dem:
+        missing.append("Đánh giá người mua (Agent 03) để biết phàn nàn và tính năng được khen")
+    # Lợi thế có thể có và khoảng trống: chỉ nêu khi có bằng chứng, mạnh/yếu theo số lượt nhắc và số tin
+    gaps = []
+    for t in complaints:
+        gaps.append({"gap": f"Giải quyết: {t['theme']}", "strength": "khoảng trống có cơ sở" if t["_strong"] else "giả thuyết (mẫu nhỏ)",
+                     "evidence": t["evidence"]})
+    if dist:
+        meds = {p: d["median"] for p, d in dist.items() if "median" in d}
+        if len(meds) >= 2 and max(meds.values()) > 1.15 * min(meds.values()):
+            gaps.append({"gap": "Chênh giá trung vị giữa các sàn: " + ", ".join(f"{p} {_vnd(v)}" for p, v in meds.items()),
+                         "strength": "quan sát", "evidence": [r["id"] for r in L]})
+    advantages = []
+    if not inc and L:
+        advantages.append({"advantage": "Chưa thấy shop hãng/nhà phân phối trong mẫu: cửa cho shop đại lý", "evidence": [r["id"] for r in L]})
+    if conc.get("top_share") is not None and conc["top_share"] < 0.4:
+        advantages.append({"advantage": f"Không shop nào chiếm ≥ 40% nhãn 'đã bán' (shop đầu {conc['top_share']:.0%})", "evidence": [r["id"] for r in L]})
+    ev = list(dict.fromkeys([r["id"] for r in L] + [r["id"] for r in dem]))
+    conf = round((cg.get("confidence") or 0) * (1 if dem else 0.7), 3)
+    rec = []
+    if "shopee" not in dist:
+        rec.append("Thu tin đăng đúng model trên Shopee (anh Khoa giải CAPTCHA)")
+    if len(L) < 5:
+        rec.append("Thu thêm tin đăng đúng model (≥ 5) để phân bố giá đáng tin")
+    if not dem or all(t["reliability"].startswith("mẫu nhỏ") for t in complaints):
+        rec.append("Đọc thêm đánh giá (≥ 30) của các đối thủ chính để xác nhận phàn nàn")
+    return {"product_id": pid, "variant_key": variant, "product_name": e["product_name"], "model": e["model"], "agent": "competitor_analyst",
+            "config_version": ccfg["version"],
+            "competitor_score": {"score": cg["score"], "band": cg.get("band"), "reason": cg["reason"], "components": cg.get("components")},
+            "competitor_count": {"shops": len(comp_list), "listings": len(L), "platforms": sorted({platform_of(r) for r in L})},
+            "competitors": comp_list, "price_distribution": dist, "brand_concentration": conc, "feature_comparison": features,
+            "complaints": [{k: v for k, v in t.items() if k != "_strong"} for t in complaints], "listing_weaknesses": lw,
+            "advantages": advantages, "market_gaps": gaps, "evidence": ev, "confidence": conf,
+            "missing_data": list(dict.fromkeys(missing)), "recommendations": rec, "input_snapshot": e["input_snapshot"]}
+
+
+def latest_competitor_analyses(store: Store):
+    out = {}
+    for r in store.records(kind="competitor_analysis"):
+        out[(r["product_id"], r.get("variant_key"))] = r
+    return out
+
+
+def render_competitor_report(store: Store, items, run=None):
+    L = ["# Competitor Analyst: đối thủ theo model", "",
+         f"Ngày {dt.date.today().strftime('%d/%m/%Y')}" + (f" · run `{run}`" if run else "") + " · Agent 04 Competitor Analyst", "",
+         "Chỉ dùng dữ liệu đã có trong kho. Phàn nàn từ vài đánh giá là tín hiệu, không phải kết luận.", "",
+         "| Model | Điểm cạnh tranh | Shop | Tin | Sàn | Giá trung vị | Độ tin cậy |", "|---|---|---|---|---|---|---|"]
+    def name(d):
+        return d["model"]["display"] if d["variant_key"] else d["product_name"] + " (chưa xác định model)"
+    for d in items:
+        med = "; ".join(f"{p} {_vnd(x['median'])}" for p, x in d["price_distribution"].items() if "median" in x) or "chưa đủ tin"
+        sc = d["competitor_score"]["score"]
+        L.append(f"| {name(d)} | {sc if sc is not None else 'chưa chấm'} | {d['competitor_count']['shops']} | {d['competitor_count']['listings']} | "
+                 f"{', '.join(d['competitor_count']['platforms']) or '-'} | {med} | {d['confidence']} |")
+    for d in items:
+        if not d["competitor_count"]["listings"]:
+            continue
+        L += ["", f"## {name(d)}", "", f"- **Điểm cạnh tranh:** {d['competitor_score']['score']} · {d['competitor_score']['reason']}"]
+        L.append("- **Đối thủ:** " + "; ".join(f"{c['shop']} ({c['type']}, {c['listings']} tin, đã bán lũy kế {c['sold_label_total']}"
+                                                 + (f", từ {_vnd(c['min_price'])}" if c['min_price'] else "") + ")" for c in d["competitors"][:8]))
+        L.append("- **Phân bố giá:** " + "; ".join(
+            (f"{p}: {_vnd(x['min'])} / P25 {_vnd(x['p25'])} / trung vị {_vnd(x['median'])} / P75 {_vnd(x['p75'])} / {_vnd(x['max'])} (n={x['n']})" if "median" in x
+             else f"{p}: {x['note']}") for p, x in d["price_distribution"].items()))
+        bc = d["brand_concentration"]
+        L.append("- **Mức tập trung:** " + (f"shop đầu {bc['top_shop']} chiếm {bc['top_share']:.0%} nhãn 'đã bán' lũy kế, HHI {bc['hhi']}. " if bc.get("basis") else "")
+                 + f"{bc['incumbent_listings']} tin của hãng/nhà phân phối. {bc['note']}")
+        L.append("- **Tính năng người mua khen:** " + ("; ".join(f"{t['theme']} ({t['mentions']}/{t['sample_size'] or '?'}, {t['reliability']})"
+                                                         for t in d["feature_comparison"]["buyer_valued"]) or "chưa có dữ liệu"))
+        L.append("- **Phàn nàn:** " + ("; ".join(f"{t['theme']} ({t['mentions']}/{t['sample_size'] or '?'}, {t['reliability']})" for t in d["complaints"]) or "chưa có dữ liệu"))
+        L.append("- **Lợi thế có thể có:** " + ("; ".join(a["advantage"] for a in d["advantages"]) or "chưa có bằng chứng"))
+        L.append("- **Khoảng trống thị trường:** " + ("; ".join(f"{g['gap']} ({g['strength']})" for g in d["market_gaps"]) or "chưa có bằng chứng"))
+        L.append(f"- **Độ tin cậy:** {d['confidence']} · **Dữ liệu còn thiếu:** " + ("; ".join(d["missing_data"]) or "không"))
+        L.append("- **Đề xuất:** " + ("; ".join(d["recommendations"]) or "không"))
+    return "\n".join(L) + "\n"
+
+
+PIPELINE_STEPS = ("readiness", "demand", "competitors", "evaluate")
+
+
+def _write_dedup(store, run, kind, rec, prev, same):
+    if prev and same(prev, rec):
+        return prev, "unchanged"
+    return store.append(run, kind, rec), "new"
+
+
+def run_pipeline(store: Store, run, targets):
+    """Phase 4: chạy các Agent chỉ đọc kho (03 Demand, 04 Competitor, 07 Evaluator) theo đúng thứ tự cho từng model, chống ghi trùng.
+    Agent 01/02/05/06 cần thu thập (trình duyệt/người dùng) nên không chạy ở đây; việc của chúng xuất hiện trong next_actions."""
+    pd, pc, pe = latest_demand_analyses(store), latest_competitor_analyses(store), latest_evaluations(store)
+    rows = []
+    for pid, v in targets:
+        rd = readiness(store, pid, v)
+        d, wd = _write_dedup(store, run, "demand_analysis", demand_analysis(store, pid, v), pd.get((pid, v)), same_demand_analysis)
+        c, wc = _write_dedup(store, run, "competitor_analysis", competitor_analysis(store, pid, v), pc.get((pid, v)), same_demand_analysis)
+        e, we = _write_dedup(store, run, "evaluation", evaluate(store, pid, v), pe.get((pid, v)), same_evaluation)
+        rows.append({"product_id": pid, "variant_key": v, "readiness": rd, "demand": d, "competitors": c, "evaluation": e,
+                     "writes": {"demand_analysis": wd, "competitor_analysis": wc, "evaluation": we}})
+    return rows
+
+
+def render_pipeline_report(rows, run=None):
+    def name(e):
+        return (e.get("model") or {}).get("display") if e.get("variant_key") else f"{e.get('product_name')} (chưa xác định model)"
+    L = ["# AI Product Hunter: báo cáo tổng hợp theo model", "",
+         f"Ngày {dt.date.today().strftime('%d/%m/%Y')}" + (f" · run `{run}`" if run else "") + " · Agent 03 → 04 → 07 trên dữ liệu đã có trong kho", "",
+         "Thứ tự: Demand Analyst (03) và Competitor Analyst (04) tóm tắt dữ liệu; Opportunity Evaluator (07) chấm điểm và kết luận từ dữ liệu gốc. "
+         "Bảng xếp theo Opportunity Score giảm dần.", "",
+         "| Model | Trạng thái | Điểm | Phủ | Nhu cầu | Velocity sp/30 ngày | Đối thủ (shop) | Phàn nàn chính | Câu hỏi nhu cầu đã trả lời |",
+         "|---|---|---|---|---|---|---|---|---|"]
+    rows = sorted(rows, key=lambda r: (r["evaluation"]["total"] is None, -(r["evaluation"]["total"] or 0)))
+    for r in rows:
+        e, d, c = r["evaluation"], r["demand"], r["competitors"]
+        ans = sum(1 for q in d["questions"] if not str(q["answer"]).startswith("UNKNOWN"))
+        comp = c["complaints"][0] if c["complaints"] else None
+        L.append(f"| {name(e)} | {e['status'].replace('_', ' ')} | {e['total'] if e['total'] is not None else 'chưa có'} | {e['weight_coverage']}% | "
+                 f"{d['demand_score']['level']} | {(d['velocity'] or {}).get('units_per_30d', 'chưa đo')} | {c['competitor_count']['shops']} | "
+                 f"{(comp['theme'] + ' (' + str(comp['mentions']) + '/' + str(comp['sample_size'] or '?') + ')') if comp else '-'} | {ans}/9 |")
+    owners = {}
+    for r in rows:
+        for a in r["evaluation"]["next_actions"]:
+            owners.setdefault(a.get("owner") or "?", {}).setdefault(a["action"], []).append(name(r["evaluation"]))
+    L += ["", "## Việc tiếp theo theo người/Agent phụ trách", ""]
+    for o in sorted(owners):
+        L.append(f"### {o}")
+        for act, models in sorted(owners[o].items(), key=lambda x: -len(x[1])):
+            L.append(f"- {act} — {len(models)} model" + (f": {', '.join(models[:4])}{' …' if len(models) > 4 else ''}" if len(models) <= 6 else ""))
+        L.append("")
+    L += ["## Ghi chú", "- GO cần mọi Gate đạt, điểm ≥ 75 và phủ trọng số ≥ 80%. Thiếu dữ liệu cho ra NEED MORE DATA, không phải kết luận xấu.",
+          "- Chi tiết từng Agent: chạy `aph.py demand|competitors|eval-report --out …` cho báo cáo riêng."]
+    return "\n".join(L) + "\n"
+
+
 def readiness(store: Store, pid, variant):
     """Kiểm tra đầu vào của một model trước khi đánh giá: đủ / thiếu / không hợp lệ, và Agent nào bổ sung. Không ghi gì."""
     e = evaluate(store, pid, variant)
@@ -2204,6 +2424,12 @@ def main(argv=None):
     s = sub.add_parser("trend", help="Phân loại giai đoạn xu hướng từ chuỗi theo tuần; ghi bản ghi trend trừ khi --dry")
     s.add_argument("--run"); s.add_argument("--product", required=True); s.add_argument("--dry", action="store_true")
     s = sub.add_parser("coverage", help="Độ phủ nguồn theo nhu cầu dữ liệu (config/source_fallbacks.json)"); s.add_argument("--product", required=True)
+    s = sub.add_parser("pipeline", help="Phase 4: chạy readiness → Agent 03 demand → Agent 04 competitors → Agent 07 evaluate cho từng model, chống ghi trùng, báo cáo tổng hợp")
+    s.add_argument("--run", required=True); s.add_argument("--product"); s.add_argument("--variant"); s.add_argument("--all", action="store_true")
+    s.add_argument("--out", help="ghi báo cáo tổng hợp Markdown")
+    s = sub.add_parser("competitors", help="Agent 04: phân tích đối thủ theo model từ kho (giá theo sàn, tập trung, phàn nàn, khoảng trống); ghi competitor_analysis trừ khi --dry")
+    s.add_argument("--run"); s.add_argument("--product"); s.add_argument("--variant"); s.add_argument("--all", action="store_true")
+    s.add_argument("--dry", action="store_true"); s.add_argument("--out", help="ghi báo cáo Markdown")
     s = sub.add_parser("demand", help="Agent 03: phân tích nhu cầu theo model từ kho (9 câu hỏi, Presence/Velocity, điểm đau...); ghi demand_analysis trừ khi --dry")
     s.add_argument("--run"); s.add_argument("--product"); s.add_argument("--variant"); s.add_argument("--all", action="store_true")
     s.add_argument("--dry", action="store_true"); s.add_argument("--out", help="ghi báo cáo Markdown")
@@ -2355,6 +2581,44 @@ def main(argv=None):
                 else:
                     out.append(ev if a.dry else {**st.append(a.run, "evaluation", ev), "write": "new"})
             res = out[0] if len(out) == 1 else [{k: e.get(k) for k in ("id", "product_id", "variant_key", "status", "total", "weight_coverage", "data_confidence", "write")} for e in out]
+        elif a.cmd == "pipeline":
+            if a.all:
+                targets = [(p["product_id"], v) for p in st.products() for v in product_variants(st, p["product_id"])]
+            elif a.product:
+                targets = [(a.product, a.variant)] if a.variant else [(a.product, v) for v in product_variants(st, a.product)]
+            else:
+                raise APHError("Cần --product hoặc --all")
+            rows = run_pipeline(st, a.run, targets)
+            if a.out:
+                Path(a.out).parent.mkdir(parents=True, exist_ok=True)
+                Path(a.out).write_text(render_pipeline_report(rows, a.run), encoding="utf-8")
+            res = [{"product_id": r["product_id"], "variant_key": r["variant_key"], "status": r["evaluation"]["status"], "total": r["evaluation"]["total"],
+                    "ready_for_go": r["readiness"]["ready_for_go"], "writes": r["writes"]} for r in rows]
+        elif a.cmd == "competitors":
+            if a.all:
+                targets = [(p["product_id"], v) for p in st.products() for v in product_variants(st, p["product_id"])]
+            elif a.product:
+                targets = [(a.product, a.variant)] if a.variant else [(a.product, v) for v in product_variants(st, a.product)]
+            else:
+                raise APHError("Cần --product hoặc --all")
+            if not a.dry and not a.run:
+                raise APHError("Cần --run để ghi phân tích (hoặc dùng --dry)")
+            prev, items, out = latest_competitor_analyses(st), [], []
+            for pid, v in targets:
+                d = competitor_analysis(st, pid, v)
+                old = prev.get((pid, v))
+                if a.dry:
+                    rec, wr = d, "dry"
+                elif old and same_demand_analysis(old, d):
+                    rec, wr = old, "unchanged"
+                else:
+                    rec, wr = st.append(a.run, "competitor_analysis", d), "new"
+                items.append(rec); out.append({"id": rec.get("id"), "product_id": pid, "variant_key": v, "competitor_score": d["competitor_score"]["score"],
+                                               "shops": d["competitor_count"]["shops"], "confidence": d["confidence"], "write": wr})
+            if a.out:
+                Path(a.out).parent.mkdir(parents=True, exist_ok=True)
+                Path(a.out).write_text(render_competitor_report(st, items, a.run), encoding="utf-8")
+            res = items[0] if (len(items) == 1 and a.dry) else out
         elif a.cmd == "demand":
             if a.all:
                 targets = [(p["product_id"], v) for p in st.products() for v in product_variants(st, p["product_id"])]

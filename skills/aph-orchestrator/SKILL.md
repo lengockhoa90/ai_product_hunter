@@ -37,7 +37,7 @@ Trước khi nghiên cứu một sản phẩm: `aph.py match --name "<tên>" --f
 - Không có → `add-product --run <run_id> --json '{...}'` (category theo `config/categories.json`).
 
 ## 3. Chạy từng Agent
-Mỗi Agent có skill riêng tên `dtm-<agent>`. Đã có: `skills/dtm-market-hunter/SKILL.md` (Agent 01), `skills/dtm-trend-hunter/SKILL.md` (Agent 02, giai đoạn xu hướng qua `aph.py trend`), `skills/dtm-supplier-hunter/SKILL.md` (Agent 05), `skills/dtm-profit-analyst/SKILL.md` (Agent 06), `skills/dtm-opportunity-evaluator/SKILL.md` (Agent 07, bước `evaluator` trong bảng mục 1), `skills/dtm-demand-analyst/SKILL.md` (Agent 03, bước `demand`, lệnh `aph.py demand`). Chưa có: Agent 04. Khi skill Agent chưa có, làm theo mục tiêu/đầu ra trong `docs/SYSTEM_ARCHITECTURE.md` và `rules/`. Với mỗi Agent:
+Mỗi Agent có skill riêng tên `dtm-<agent>`. Đã có: `skills/dtm-market-hunter/SKILL.md` (Agent 01), `skills/dtm-trend-hunter/SKILL.md` (Agent 02, giai đoạn xu hướng qua `aph.py trend`), `skills/dtm-supplier-hunter/SKILL.md` (Agent 05), `skills/dtm-profit-analyst/SKILL.md` (Agent 06), `skills/dtm-opportunity-evaluator/SKILL.md` (Agent 07, bước `evaluator` trong bảng mục 1), `skills/dtm-demand-analyst/SKILL.md` (Agent 03, bước `demand`, lệnh `aph.py demand`), `skills/dtm-competitor-analyst/SKILL.md` (Agent 04, bước `competitor`, lệnh `aph.py competitors`). Đủ 7 Agent. Khi skill Agent chưa có, làm theo mục tiêu/đầu ra trong `docs/SYSTEM_ARCHITECTURE.md` và `rules/`. Với mỗi Agent:
 - Thu thập qua trình duyệt Claude trên PC (`mcp__remote-devices__Claude_Browser__*`) hoặc WebSearch; đọc trang bằng `get_page_text` hoặc `javascript_tool` (đợi 3–5 giây).
 - Ghi ngay từng dữ liệu bằng `aph.py add --run --kind observation|listing|supplier|demand|trend --json ...`. Dữ liệu `observed` phải có `evidence_excerpt` chép nguyên văn từ trang.
 - Shopee: khi gặp CAPTCHA, dừng và nhờ người dùng tự giải trong khung trình duyệt; chỉ đọc tiếp sau khi họ báo xong. Không bao giờ tự giải.
@@ -66,6 +66,7 @@ Một người ghi: nếu `runs/` có run khác chưa kết thúc (dưới 2 gi�
   9. `aph.py eval-report --out … --run <run>`, viết phần đầu báo cáo.
   10. `finish-run`, `reindex`, báo cho người dùng việc cần họ cung cấp.
   Lệnh cũ `aph.py score` (v1, 7 tiêu chí) chỉ giữ để đọc lịch sử.
+- Tích hợp: sau khi thu thập xong (Agent 01/02/05/06 và phần thu thập của 03/04), chạy `aph.py pipeline --run <run> --all|--product <id> [--variant <v>] --out /mnt/project-files/ai-product-hunter/reports/daily/<ngày>_tong-hop.md`: readiness → Agent 03 `demand` → Agent 04 `competitors` → Agent 07 `evaluate` cho từng model, chống ghi trùng, báo cáo tổng hợp gồm bảng theo điểm và việc tiếp theo gom theo người/Agent phụ trách. Lịch cloud (không có trình duyệt) chỉ chạy lệnh này.
 - Sau đánh giá: chỉ chạy Agent mà `next_actions` cần, không chạy lại toàn bộ. Việc có owner "Anh Khoa" → liệt kê cho người dùng.
 - Trạng thái nghiên cứu: `suggested_research_status` chỉ là đề xuất; ghi `aph.py set-status --run --product --research <status> --reason "<lý do>" --by orchestrator` khi người dùng đồng ý.
 

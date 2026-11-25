@@ -1147,15 +1147,18 @@ class TestAgent07Completion(Agent07Base):
         self.assertIn("suggested_research_status", aph.gate(ev))
 
 
-class TestDemandAnalyst(Agent07Base):
-    """Agent 03 Demand Analyst: tổng hợp nhu cầu theo model, không suy diễn ngoài dữ liệu."""
-
+class DemandBase(Agent07Base):
     def dem(self, pid, theme, aspect, mentions, sample, platform="lazada", **kw):
         src = self.obs(pid, metric="complaint_mention", url=f"https://{platform}.example/review", value=mentions,
                        evidence_excerpt=f"{mentions} đánh giá: {theme}")
         d = {"product_id": pid, "type": "complaint", "theme": theme, "evidence": [src["id"]], "aspect": aspect,
              "mentions": mentions, "sample_size": sample, "platform": platform, "variant_key": self.V, **kw}
         return self.st.append(self.run, "demand", d)
+
+
+
+class TestDemandAnalyst(DemandBase):
+    """Agent 03 Demand Analyst: tổng hợp nhu cầu theo model, không suy diễn ngoài dữ liệu."""
 
     def test_no_data_stays_unknown(self):
         pid = self.product()["product_id"]
@@ -1234,3 +1237,85 @@ class TestDemandAnalyst(Agent07Base):
         self.assertIn("Có nhu cầu thật không", out.read_text(encoding="utf-8"))
         snap = {x["kind"] for x in aph.evaluate(self.st, pid, self.V)["input_snapshot"]}
         self.assertNotIn("demand_analysis", snap)
+
+
+class TestCompetitorAnalyst(DemandBase):
+    """Agent 04 Competitor Analyst: đối thủ theo model, không khái quát từ mẫu nhỏ."""
+
+    def test_no_listings_no_distribution(self):
+        pid = self.product()["product_id"]
+        d = aph.competitor_analysis(self.st, pid, None)
+        self.assertEqual((d["competitor_count"]["listings"], d["price_distribution"]), (0, {}))
+        self.assertIsNone(d["competitor_score"]["score"])
+        self.assertIsNone(d["brand_concentration"]["basis"])
+
+    def test_distribution_per_platform_and_small_platform(self):
+        pid = self.strong(real_cost=False)
+        d = aph.competitor_analysis(self.st, pid, self.V)
+        self.assertEqual(d["price_distribution"]["lazada"]["n"], 2)
+        self.assertIn("note", d["price_distribution"]["lazada"])  # 2 tin < 3: không tính phân bố
+        self.assertEqual(d["competitor_count"]["shops"], 3)
+        self.assertIn("Tin đăng đúng model trên tiktok_shop", d["missing_data"])
+        self.assertEqual(d["brand_concentration"]["shops_with_sales"], 3)
+
+    def test_gap_strength_depends_on_sample(self):
+        pid = self.strong(real_cost=False)
+        self.dem(pid, "Pin nhanh hết", "pain_point", 1, 8)
+        weak = aph.competitor_analysis(self.st, pid, self.V)
+        self.assertEqual(weak["market_gaps"][0]["strength"], "giả thuyết (mẫu nhỏ)")
+        self.dem(pid, "Pin nhanh hết", "pain_point", 4, 40, platform="shopee")
+        strong = aph.competitor_analysis(self.st, pid, self.V)
+        g = [x for x in strong["market_gaps"] if "Pin" in x["gap"]][0]
+        self.assertEqual(g["strength"], "khoảng trống có cơ sở")
+
+    def test_cli_dedup_and_not_evaluator_input(self):
+        import contextlib, io
+        pid = self.strong(real_cost=False)
+        def cli(*args):
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = aph.main(["--data", self.tmp.name, *args])
+            self.assertEqual(rc, 0, buf.getvalue())
+            return json.loads(buf.getvalue())
+        out = pathlib.Path(self.tmp.name) / "comp.md"
+        a = cli("competitors", "--run", self.run, "--product", pid, "--variant", self.V, "--out", str(out))
+        b = cli("competitors", "--run", self.run, "--product", pid, "--variant", self.V)
+        self.assertEqual((a[0]["write"], b[0]["write"]), ("new", "unchanged"))
+        self.assertIn("Phân bố giá", out.read_text(encoding="utf-8"))
+        self.assertNotIn("competitor_analysis", {x["kind"] for x in aph.evaluate(self.st, pid, self.V)["input_snapshot"]})
+
+
+
+class TestPipelineIntegration(DemandBase):
+    """Phase 4: Agent 03 → 04 → 07 chạy nối tiếp trên cùng dữ liệu, chống ghi trùng."""
+
+    def cli(self, *args):
+        import contextlib, io
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = aph.main(["--data", self.tmp.name, *args])
+        self.assertEqual(rc, 0, buf.getvalue())
+        return json.loads(buf.getvalue())
+
+    def test_pipeline_end_to_end(self):
+        go = self.strong(real_cost=True, tag="go")
+        weak = self.strong(real_cost=False, demand="weak", tag="weak")
+        out = pathlib.Path(self.tmp.name) / "tong-hop.md"
+        first = self.cli("pipeline", "--run", self.run, "--all", "--out", str(out))
+        by = {r["product_id"]: r for r in first}
+        self.assertEqual(by[go]["status"], "GO")
+        self.assertTrue(by[go]["ready_for_go"])
+        self.assertNotEqual(by[weak]["status"], "GO")
+        self.assertTrue(all(set(r["writes"].values()) == {"new"} for r in first))
+        again = self.cli("pipeline", "--run", self.run, "--all")
+        self.assertTrue(all(set(r["writes"].values()) == {"unchanged"} for r in again))
+        txt = out.read_text(encoding="utf-8")
+        self.assertIn("Việc tiếp theo theo người/Agent phụ trách", txt)
+        self.assertLess(txt.index("| GO |"), txt.index("NEED MORE DATA") if "NEED MORE DATA" in txt else len(txt))
+        # Dữ liệu mới của Agent 03 làm thay đổi phân tích nhu cầu và đánh giá, không chạm bản cũ
+        self.dem(go, "Pin nhanh hết", "pain_point", 4, 40)
+        third = {r["product_id"]: r for r in self.cli("pipeline", "--run", self.run, "--product", go, "--variant", self.V)}
+        self.assertEqual(third[go]["writes"]["demand_analysis"], "new")
+        self.assertEqual(third[go]["writes"]["evaluation"], "new")
+        self.assertEqual(len(self.st.records(go, "demand_analysis")), 2)
+        self.assertEqual(len(self.st.records(go, "evaluation")), 2)

@@ -327,6 +327,20 @@ Lệnh `aph.py demand` (config `config/demand_analysis.json`), skill `dtm-demand
 - Kind mới `demand_analysis`: kết quả 9 câu hỏi + `input_snapshot`, append-only, chạy lại không đổi → không ghi. Không là đầu vào chấm điểm (nằm trong `SKIP_KINDS`).
 - Quy tắc: mẫu nhỏ được gắn nhãn; mùa vụ cần ≥ 350 ngày dữ liệu, 1 năm chỉ là chỉ báo.
 
+### 4.9 Agent 04 Competitor Analyst (0.6)
+
+Lệnh `aph.py competitors` (config `config/competitor_analysis.json`), skill `dtm-competitor-analyst`. Chỉ đọc kho; dùng bộ lọc model và nhóm Cạnh tranh của Agent 07.
+- Đầu ra theo model: Competitor Score, số đối thủ, danh sách shop (hãng/nhà phân phối hay shop thường), phân bố giá theo sàn (≥ 3 tin), mức tập trung (tỷ trọng shop đầu, HHI theo nhãn "đã bán" lũy kế), tính năng người mua khen, phàn nàn, lợi thế, khoảng trống (có cơ sở khi ≥ 3 lượt nhắc trên ≥ 2 tin), bằng chứng, độ tin cậy, dữ liệu thiếu, đề xuất.
+- Kind mới `competitor_analysis` (append-only, chạy lại không đổi → không ghi; nằm trong `SKIP_KINDS`).
+
+### 4.10 Tích hợp 7 Agent (0.6)
+
+- Agent thu thập (01 Market, 02 Trend, 05 Supplier, 06 Profit, và phần thu thập của 03/04) chạy trong thread có PC, ghi bản ghi gốc.
+- Agent tổng hợp chỉ đọc kho, chạy bằng `aph.py pipeline`: readiness → 03 `demand_analysis` → 04 `competitor_analysis` → 07 `evaluation`. Cả ba dùng chung bộ lọc model của Agent 07 nên không mâu thuẫn; 03/04 không là đầu vào chấm điểm (07 đọc dữ liệu gốc).
+- Chống ghi trùng ở mọi bước; dữ liệu gốc mới → chỉ bước bị ảnh hưởng ghi bản mới.
+- Đánh giá NCC (`vendor_review`) gắn với pháp nhân: tin NCC dùng bản đánh giá mới nhất của NCC đó, kể cả khi bản mới gắn tin khác (sửa lỗi 0.6).
+- Báo cáo tổng hợp: bảng theo Opportunity Score + việc tiếp theo gom theo người/Agent phụ trách. Lịch cloud chỉ chạy được bước này.
+
 ### 4.5 Lợi nhuận
 
 `Lợi nhuận = Doanh thu − Giá vốn (giá nhập + vận chuyển quốc tế + thuế/phí nhập) − Phí nền tảng − Quảng cáo − Vận chuyển người bán chịu − Đóng gói − Vận hành − Bảo hành/hoàn hàng dự kiến − Khác`.
